@@ -1,0 +1,20 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx --yes create-next-app@latest . --typescript --tailwind --eslint --app --src-dir --import-alias \"@/*\" --use-npm --skip-install=false)",
+      "Bash(npm run *)",
+      "Bash(npm install *)",
+      "Bash(curl -sf http://localhost:3000)",
+      "Bash(npx --yes playwright --version)",
+      "Bash(node -e \"require.resolve\\('playwright'\\)\")",
+      "Bash(node -e \"require.resolve\\('playwright-core'\\)\")",
+      "Bash(mkdir -p /private/tmp/claude-501/-Users-quentinhaentjens-Documents-business-tools-travel-agent/a462d100-7017-4cf8-82fd-91124ab0f497/scratchpad/shots)",
+      "Bash(npm init *)",
+      "Read(//Users/quentinhaentjens/Library/Caches/ms-playwright/**)",
+      "Read(//Applications/Google Chrome.app/**)",
+      "Bash(node test.mjs)",
+      "Bash(node test2.mjs)",
+      "Bash(node measure.mjs)"
+    ]
+  }
+}
