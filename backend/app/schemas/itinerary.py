@@ -85,6 +85,7 @@ class DayPlan(BaseModel):
 class ItineraryResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    destination: str
+    destination_city: str | None = None
+    destination_country: str
     summary: str
     days: list[DayPlan]
