@@ -1,6 +1,8 @@
 "use client";
 
 import { Check, Search, X } from "lucide-react";
+import { useLanguage } from "@/lib/i18n/LanguageProvider";
+import { translateTripType } from "@/lib/i18n/tripTypeLabels";
 import DayRangeDropdown from "./DayRangeDropdown";
 
 interface LibraryToolbarProps {
@@ -24,6 +26,8 @@ export default function LibraryToolbar({
   selectedTags,
   onToggleTag,
 }: LibraryToolbarProps) {
+  const { t, locale } = useLanguage();
+
   return (
     <div className="mb-8 flex flex-col gap-4 rounded-2xl border border-zinc-200/80 bg-white/80 p-4 shadow-sm shadow-zinc-900/5 backdrop-blur-sm dark:border-zinc-800 dark:bg-zinc-900/60">
       <div className="flex flex-col gap-3 sm:flex-row">
@@ -33,14 +37,14 @@ export default function LibraryToolbar({
             type="text"
             value={query}
             onChange={(e) => onQueryChange(e.target.value)}
-            placeholder="Rechercher une destination..."
+            placeholder={t("library.toolbar.searchPlaceholder")}
             className="w-full rounded-2xl border border-zinc-200 bg-white py-2.5 pr-4 pl-10 text-sm text-zinc-900 placeholder:text-zinc-400 outline-none transition focus:border-violet-400 focus:ring-4 focus:ring-violet-100 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:placeholder:text-zinc-500 dark:focus:border-violet-500 dark:focus:ring-violet-500/10"
           />
           {query && (
             <button
               type="button"
               onClick={() => onQueryChange("")}
-              aria-label="Effacer la recherche"
+              aria-label={t("library.toolbar.clearSearch")}
               className="absolute top-1/2 right-3 -translate-y-1/2 rounded-full p-0.5 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-500 dark:hover:bg-zinc-800 dark:hover:text-zinc-300"
             >
               <X className="size-4" />
@@ -67,7 +71,7 @@ export default function LibraryToolbar({
                 }`}
               >
                 {isSelected && <Check className="size-3" strokeWidth={3} />}
-                {tag}
+                {translateTripType(tag, locale)}
               </button>
             );
           })}

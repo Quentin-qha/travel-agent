@@ -155,3 +155,43 @@ class DayItemsResponse(BaseModel):
 
     activities: list[Activity]
     restaurants: list[Restaurant]
+
+
+class ActivityContent(BaseModel):
+    """Just the linguistic fields of an Activity — the shape a translation call fills in."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str
+    description: str
+    category: str
+
+
+class RestaurantContent(BaseModel):
+    """Just the linguistic fields of a Restaurant — the shape a translation call fills in."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str
+    description: str
+    cuisine: str
+
+
+class DayContent(BaseModel):
+    """Translated activities/restaurants for a single day, same order as the source day."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    activities: list[ActivityContent]
+    restaurants: list[RestaurantContent]
+
+
+class TranslatedItinerary(BaseModel):
+    """Structured output for translating a full ItineraryResponse to English."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    destination_city: str
+    destination_country: str
+    summary: str
+    days: list[DayContent]

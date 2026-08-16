@@ -9,8 +9,10 @@ from anthropic import Anthropic
 from app.core.config import settings
 from app.schemas.itinerary import (
     Activity,
+    ActivityContent,
     City,
     DateRange,
+    DayContent,
     DayItemsResponse,
     ItineraryContext,
     ItineraryCreateResponse,
@@ -18,6 +20,8 @@ from app.schemas.itinerary import (
     ItineraryRequest,
     ItineraryResponse,
     Restaurant,
+    RestaurantContent,
+    TranslatedItinerary,
 )
 from app.services.storage import (
     get_day_plan_ids,
@@ -36,6 +40,8 @@ GOOGLE_GEOCODING_URL = "https://maps.googleapis.com/maps/api/geocode/json"
 
 RESPONSE_SCHEMA = ItineraryResponse.model_json_schema()
 DAY_ITEMS_RESPONSE_SCHEMA = DayItemsResponse.model_json_schema()
+TRANSLATION_SCHEMA = TranslatedItinerary.model_json_schema()
+DAY_TRANSLATION_SCHEMA = DayContent.model_json_schema()
 
 # Models that support adaptive thinking, output_config.effort, and the
 # dynamic-filtering web_search_20260209 tool. Older/lighter models
@@ -140,23 +146,25 @@ def _build_partial_prompt(
     )
 
 
-def _request_params(messages: list[dict], schema: dict) -> dict:
+def _request_params(messages: list[dict], schema: dict, use_search: bool = True) -> dict:
     model = settings.claude_model
     supports_adaptive = model in MODELS_WITH_ADAPTIVE_FEATURES
-
-    web_search_tool = {
-        "type": "web_search_20260209" if supports_adaptive else "web_search_20250305",
-        "name": "web_search",
-        "max_uses": 4,
-    }
 
     params: dict = {
         "model": model,
         "max_tokens": 16000,
         "output_config": {"format": {"type": "json_schema", "schema": schema}},
-        "tools": [web_search_tool],
         "messages": messages,
     }
+
+    if use_search:
+        params["tools"] = [
+            {
+                "type": "web_search_20260209" if supports_adaptive else "web_search_20250305",
+                "name": "web_search",
+                "max_uses": 4,
+            }
+        ]
 
     if supports_adaptive:
         params["thinking"] = {"type": "adaptive"}
@@ -165,20 +173,20 @@ def _request_params(messages: list[dict], schema: dict) -> dict:
     return params
 
 
-def _run(messages: list[dict], schema: dict):
+def _run(messages: list[dict], schema: dict, use_search: bool = True):
     # Streaming avoids SDK HTTP timeouts at this max_tokens size.
-    with client.messages.stream(**_request_params(messages, schema)) as stream:
+    with client.messages.stream(**_request_params(messages, schema, use_search)) as stream:
         return stream.get_final_message()
 
 
-def _run_to_completion(messages: list[dict], schema: dict = RESPONSE_SCHEMA):
-    response = _run(messages, schema)
+def _run_to_completion(messages: list[dict], schema: dict = RESPONSE_SCHEMA, use_search: bool = True):
+    response = _run(messages, schema, use_search)
 
     # The server-side web_search loop pauses after its default iteration cap;
     # resending the assistant turn resumes it automatically.
     while response.stop_reason == "pause_turn":
         messages.append({"role": "assistant", "content": response.content})
-        response = _run(messages, schema)
+        response = _run(messages, schema, use_search)
 
     if response.stop_reason == "refusal":
         raise RuntimeError("La génération a été refusée par les garde-fous du modèle.")
@@ -245,7 +253,123 @@ def _geocode_itinerary(destination: str, itinerary: ItineraryResponse) -> None:
             _geocode_place(destination, restaurant)
 
 
-def generate_itinerary(request: ItineraryRequest) -> ItineraryCreateResponse:
+def _build_translation_prompt(payload: dict) -> str:
+    return (
+        "Traduis ce contenu de voyage du français vers l'anglais, en gardant EXACTEMENT la même "
+        "structure : même nombre de jours, même nombre d'activités et de restaurants par jour, "
+        "dans le même ordre — le résultat est réinjecté par position, un décalage casserait tout. "
+        "Ne traduis pas les noms propres de lieux/monuments s'ils n'ont pas de forme anglaise "
+        "usuelle ; utilise la forme anglaise standard quand elle existe (ex. 'Tour Eiffel' -> "
+        "'Eiffel Tower'). Garde un ton naturel, pas une traduction mot à mot.\n\n"
+        f"Contenu à traduire (JSON) :\n{json.dumps(payload, ensure_ascii=False)}\n\n"
+        "Réponds uniquement selon le schéma fourni."
+    )
+
+
+def _itinerary_translation_payload(itinerary: ItineraryResponse) -> dict:
+    return {
+        "destination_city": itinerary.destination_city,
+        "destination_country": itinerary.destination_country,
+        "summary": itinerary.summary,
+        "days": [_day_translation_payload(day.activities, day.restaurants) for day in itinerary.days],
+    }
+
+
+def _day_translation_payload(activities: list[Activity], restaurants: list[Restaurant]) -> dict:
+    return {
+        "activities": [{"name": a.name, "description": a.description, "category": a.category} for a in activities],
+        "restaurants": [
+            {"name": r.name, "description": r.description, "cuisine": r.cuisine} for r in restaurants
+        ],
+    }
+
+
+def _translate_with_retry(prompt: str, schema: dict, model_cls, retries: int = 1):
+    """Runs a translation call, retrying on failure. Translation calls are cheap (no
+    web search, no thinking) so absorbing a transient API error this way is low-cost —
+    same rationale as _geocode's retry for the same class of intermittent failure."""
+    last_error: Exception | None = None
+    for attempt in range(retries + 1):
+        try:
+            response = _run_to_completion([{"role": "user", "content": prompt}], schema, use_search=False)
+            text_block = next(block.text for block in response.content if block.type == "text")
+            return model_cls.model_validate(json.loads(text_block))
+        except Exception as exc:
+            last_error = exc
+            if attempt < retries:
+                logger.warning("Translation attempt %d failed, retrying: %s", attempt + 1, exc)
+    logger.error("Translation failed after %d attempt(s): %s", retries + 1, last_error)
+    return None
+
+
+def _translate_to_english(itinerary: ItineraryResponse) -> TranslatedItinerary | None:
+    prompt = _build_translation_prompt(_itinerary_translation_payload(itinerary))
+    translated = _translate_with_retry(prompt, TRANSLATION_SCHEMA, TranslatedItinerary)
+    if translated is None:
+        logger.warning("English translation failed — falling back to French-only for this itinerary")
+        return None
+
+    if len(translated.days) != len(itinerary.days):
+        logger.warning("Translation day-count mismatch — falling back to French-only for this itinerary")
+        return None
+    for day, translated_day in zip(itinerary.days, translated.days):
+        if len(translated_day.activities) != len(day.activities) or len(translated_day.restaurants) != len(
+            day.restaurants
+        ):
+            logger.warning("Translation item-count mismatch — falling back to French-only for this itinerary")
+            return None
+
+    return translated
+
+
+def _translate_day_items(activities: list[Activity], restaurants: list[Restaurant]) -> DayContent | None:
+    if not activities and not restaurants:
+        return DayContent(activities=[], restaurants=[])
+
+    prompt = _build_translation_prompt(_day_translation_payload(activities, restaurants))
+    translated = _translate_with_retry(prompt, DAY_TRANSLATION_SCHEMA, DayContent)
+    if translated is None:
+        logger.warning("English translation failed for regenerated day items — falling back to French-only")
+        return None
+
+    if len(translated.activities) != len(activities) or len(translated.restaurants) != len(restaurants):
+        logger.warning("Translation item-count mismatch for regenerated day — falling back to French-only")
+        return None
+
+    return translated
+
+
+def _apply_translation(
+    itinerary: ItineraryResponse, translated: TranslatedItinerary | None, lang: str
+) -> ItineraryResponse:
+    """In-memory equivalent of storage.py's locale merge, for the rare case where the
+    generated itinerary couldn't be persisted (so there's no row to re-read via get_itinerary)."""
+    if lang != "en" or translated is None:
+        return itinerary
+
+    days = []
+    for day, translated_day in zip(itinerary.days, translated.days):
+        activities = [
+            activity.model_copy(update={"name": t.name, "description": t.description, "category": t.category})
+            for activity, t in zip(day.activities, translated_day.activities)
+        ]
+        restaurants = [
+            restaurant.model_copy(update={"name": t.name, "description": t.description, "cuisine": t.cuisine})
+            for restaurant, t in zip(day.restaurants, translated_day.restaurants)
+        ]
+        days.append(day.model_copy(update={"activities": activities, "restaurants": restaurants}))
+
+    return itinerary.model_copy(
+        update={
+            "destination_city": translated.destination_city,
+            "destination_country": translated.destination_country,
+            "summary": translated.summary,
+            "days": days,
+        }
+    )
+
+
+def generate_itinerary(request: ItineraryRequest, lang: str = "fr") -> ItineraryCreateResponse:
     messages: list[dict] = [{"role": "user", "content": _build_prompt(request)}]
     response = _run_to_completion(messages)
 
@@ -254,15 +378,24 @@ def generate_itinerary(request: ItineraryRequest) -> ItineraryCreateResponse:
     itinerary = ItineraryResponse.model_validate(data)
 
     _geocode_itinerary(request.city.name, itinerary)
+    translated = _translate_to_english(itinerary)
 
     itinerary_id: str | None = None
     try:
-        itinerary_id = save_itinerary(request, itinerary)
+        itinerary_id = save_itinerary(request, itinerary, translated)
     except Exception:
         # Persistence is a side effect — don't fail the request over it.
         logger.exception("Failed to save itinerary to Supabase")
 
-    return ItineraryCreateResponse(**itinerary.model_dump(), id=itinerary_id, trip_types=request.trip_types)
+    if itinerary_id is not None:
+        detail = get_itinerary(itinerary_id, locale=lang)
+        assert detail is not None  # we just saved it
+        return ItineraryCreateResponse(
+            **detail.model_dump(exclude={"id", "trip_types"}), id=itinerary_id, trip_types=request.trip_types
+        )
+
+    localized = _apply_translation(itinerary, translated, lang)
+    return ItineraryCreateResponse(**localized.model_dump(), id=None, trip_types=request.trip_types)
 
 
 def _context_to_request(context: ItineraryContext) -> ItineraryRequest:
@@ -281,7 +414,7 @@ def _context_to_request(context: ItineraryContext) -> ItineraryRequest:
     )
 
 
-def _regenerate_full(itinerary_id: str, context: ItineraryContext) -> ItineraryDetail:
+def _regenerate_full(itinerary_id: str, context: ItineraryContext, lang: str = "fr") -> ItineraryDetail:
     request = _context_to_request(context)
     messages: list[dict] = [{"role": "user", "content": _build_prompt(request)}]
     response = _run_to_completion(messages)
@@ -289,10 +422,11 @@ def _regenerate_full(itinerary_id: str, context: ItineraryContext) -> ItineraryD
     text_block = next(block.text for block in response.content if block.type == "text")
     itinerary = ItineraryResponse.model_validate(json.loads(text_block))
     _geocode_itinerary(request.city.name, itinerary)
+    translated = _translate_to_english(itinerary)
 
-    replace_days(itinerary_id, itinerary)
+    replace_days(itinerary_id, itinerary, translated)
 
-    updated = get_itinerary(itinerary_id)
+    updated = get_itinerary(itinerary_id, locale=lang)
     if updated is None:
         raise RuntimeError("Itinéraire introuvable après régénération.")
     return updated
@@ -327,10 +461,17 @@ def _merge_by_index(original: list, replaced_indices: set[int], new_items: list)
     return merged
 
 
-def _regenerate_partial(itinerary_id: str, context: ItineraryContext, item_keys: list[str]) -> ItineraryDetail:
-    current = get_itinerary(itinerary_id)
+def _regenerate_partial(
+    itinerary_id: str, context: ItineraryContext, item_keys: list[str], lang: str = "fr"
+) -> ItineraryDetail:
+    # Kept items' French text drives the regeneration prompt (see module note on
+    # get_itinerary_context); their English text (if any) is carried over as-is into
+    # the new day rows, since replace_day_items re-inserts the whole day.
+    current = get_itinerary(itinerary_id, locale="fr")
     if current is None:
         raise RuntimeError("Itinéraire introuvable.")
+    current_en = get_itinerary(itinerary_id, locale="en")
+    en_days_by_number = {day.day_number: day for day in current_en.days} if current_en else {}
 
     replace_by_day = _parse_item_keys(item_keys)
     day_plan_ids = get_day_plan_ids(itinerary_id)
@@ -374,26 +515,43 @@ def _regenerate_partial(itinerary_id: str, context: ItineraryContext, item_keys:
         final_activities = _merge_by_index(day.activities, replace_activity_idx, new_activities)
         final_restaurants = _merge_by_index(day.restaurants, replace_restaurant_idx, new_restaurants)
 
+        translated_new = _translate_day_items(new_activities, new_restaurants)
+        final_day_en: DayContent | None = None
+        if translated_new is not None:
+            en_day = en_days_by_number.get(day.day_number)
+            en_activities = [
+                ActivityContent(name=a.name, description=a.description, category=a.category)
+                for a in (en_day.activities if en_day else day.activities)
+            ]
+            en_restaurants = [
+                RestaurantContent(name=r.name, description=r.description, cuisine=r.cuisine)
+                for r in (en_day.restaurants if en_day else day.restaurants)
+            ]
+            final_day_en = DayContent(
+                activities=_merge_by_index(en_activities, replace_activity_idx, translated_new.activities),
+                restaurants=_merge_by_index(en_restaurants, replace_restaurant_idx, translated_new.restaurants),
+            )
+
         day_plan_id = day_plan_ids.get(day.day_number)
         if day_plan_id:
-            replace_day_items(day_plan_id, final_activities, final_restaurants)
+            replace_day_items(day_plan_id, final_activities, final_restaurants, final_day_en)
 
-    updated = get_itinerary(itinerary_id)
+    updated = get_itinerary(itinerary_id, locale=lang)
     if updated is None:
         raise RuntimeError("Itinéraire introuvable après régénération.")
     return updated
 
 
-def regenerate_itinerary(itinerary_id: str, item_keys: list[str]) -> ItineraryDetail:
+def regenerate_itinerary(itinerary_id: str, item_keys: list[str], lang: str = "fr") -> ItineraryDetail:
     context = get_itinerary_context(itinerary_id)
     if context is None:
         raise ValueError("Itinéraire introuvable.")
 
-    current = get_itinerary(itinerary_id)
+    current = get_itinerary(itinerary_id, locale="fr")
     if current is None:
         raise ValueError("Itinéraire introuvable.")
 
     total_items = sum(len(day.activities) + len(day.restaurants) for day in current.days)
     if len(set(item_keys)) >= total_items:
-        return _regenerate_full(itinerary_id, context)
-    return _regenerate_partial(itinerary_id, context, item_keys)
+        return _regenerate_full(itinerary_id, context, lang)
+    return _regenerate_partial(itinerary_id, context, item_keys, lang)

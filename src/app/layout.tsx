@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import { LanguageProvider } from "@/lib/i18n/LanguageProvider";
+import LanguageToggle from "@/components/common/LanguageToggle";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -20,10 +22,15 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html
-      lang="en"
+      lang="fr"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col">{children}</body>
+      <body className="min-h-full flex flex-col">
+        <LanguageProvider>
+          <LanguageToggle />
+          {children}
+        </LanguageProvider>
+      </body>
     </html>
   );
 }

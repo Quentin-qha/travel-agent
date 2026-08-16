@@ -1,6 +1,7 @@
 "use client";
 
 import { Check } from "lucide-react";
+import { useLanguage } from "@/lib/i18n/LanguageProvider";
 import { STEPS } from "./types";
 
 interface StepBulletsProps {
@@ -10,6 +11,8 @@ interface StepBulletsProps {
 }
 
 export default function StepBullets({ currentStep, maxStepReached, onStepClick }: StepBulletsProps) {
+  const { t } = useLanguage();
+
   return (
     <div className="flex items-center justify-center">
       {STEPS.map((step, index) => {
@@ -47,7 +50,7 @@ export default function StepBullets({ currentStep, maxStepReached, onStepClick }
                       : "text-zinc-300 dark:text-zinc-600"
                 }`}
               >
-                {step.label}
+                {t(step.labelKey)}
               </span>
             </button>
 

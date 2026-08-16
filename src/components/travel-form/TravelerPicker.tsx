@@ -1,6 +1,7 @@
 "use client";
 
 import { Minus, Plus, Users } from "lucide-react";
+import { useLanguage } from "@/lib/i18n/LanguageProvider";
 import { TRAVELER_TYPES, type TravelerType } from "./types";
 
 interface TravelerPickerProps {
@@ -16,6 +17,8 @@ export default function TravelerPicker({
   onTravelerTypeChange,
   onTravelerCountChange,
 }: TravelerPickerProps) {
+  const { t } = useLanguage();
+
   return (
     <div className="grid gap-4 sm:grid-cols-[1fr_auto] sm:items-end">
       <div>
@@ -37,7 +40,7 @@ export default function TravelerPicker({
                 }`}
               >
                 <Users className="size-4.5" strokeWidth={2.25} />
-                {type.label}
+                {t(`travelerTypes.${type.id}`)}
               </button>
             );
           })}
@@ -45,7 +48,9 @@ export default function TravelerPicker({
       </div>
 
       <div className="flex items-center gap-3 rounded-2xl border border-zinc-200 bg-white px-3 py-2 dark:border-zinc-700 dark:bg-zinc-900">
-        <span className="whitespace-nowrap text-xs font-medium text-zinc-500 dark:text-zinc-400">Voyageurs</span>
+        <span className="whitespace-nowrap text-xs font-medium text-zinc-500 dark:text-zinc-400">
+          {t("travelerPicker.count")}
+        </span>
         <div className="flex items-center gap-2">
           <button
             type="button"

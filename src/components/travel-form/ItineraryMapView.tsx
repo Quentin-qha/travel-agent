@@ -3,8 +3,9 @@
 import dynamic from "next/dynamic";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { format, parseISO } from "date-fns";
-import { fr } from "date-fns/locale";
 import { Check, Clock, MapPin, Pencil, Share2, TriangleAlert, UtensilsCrossed, X } from "lucide-react";
+import { useDateFnsLocale, useLanguage } from "@/lib/i18n/LanguageProvider";
+import { translateTripType } from "@/lib/i18n/tripTypeLabels";
 import {
   formatDestination,
   type ItineraryActivity,
@@ -16,13 +17,18 @@ import type { MapPoint } from "./ItineraryMap";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
+function MapLoadingFallback() {
+  const { t } = useLanguage();
+  return (
+    <div className="flex h-full w-full items-center justify-center bg-zinc-100 text-sm text-zinc-400 dark:bg-zinc-900">
+      {t("itineraryMap.mapLoading")}
+    </div>
+  );
+}
+
 const ItineraryMap = dynamic(() => import("./ItineraryMap"), {
   ssr: false,
-  loading: () => (
-    <div className="flex h-full w-full items-center justify-center bg-zinc-100 text-sm text-zinc-400 dark:bg-zinc-900">
-      Chargement de la carte…
-    </div>
-  ),
+  loading: () => <MapLoadingFallback />,
 });
 
 interface ItineraryMapViewProps {
@@ -86,6 +92,8 @@ function computeFallbackCenter(days: ItineraryDay[]): [number, number] {
 type DaySelection = number | "all";
 
 export default function ItineraryMapView({ itineraryId, itinerary: initialItinerary }: ItineraryMapViewProps) {
+  const { t, locale } = useLanguage();
+  const dateLocale = useDateFnsLocale();
   const [itinerary, setItinerary] = useState(initialItinerary);
   const [selectedDay, setSelectedDay] = useState<DaySelection>(itinerary.days[0]?.day_number ?? 1);
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
@@ -113,10 +121,10 @@ export default function ItineraryMapView({ itineraryId, itinerary: initialItiner
   const selectedCount = selectedForRegen.size;
   const regenerateLabel =
     selectedCount === 0
-      ? "Aucun élément sélectionné"
+      ? t("itineraryMap.noneSelected")
       : selectedCount === itemKeys.length
-        ? "Régénérer"
-        : `Changer les éléments sélectionnés (${selectedCount})`;
+        ? t("itineraryMap.regenerate")
+        : t("itineraryMap.changeSelected", { count: selectedCount });
 
   useEffect(() => {
     if (!selectedKey) return;
@@ -187,7 +195,7 @@ export default function ItineraryMapView({ itineraryId, itinerary: initialItiner
     setRegenError(null);
 
     try {
-      const response = await fetch(`${API_URL}/api/itinerary/${itineraryId}/regenerate`, {
+      const response = await fetch(`${API_URL}/api/itinerary/${itineraryId}/regenerate?lang=${locale}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ itemKeys: Array.from(selectedForRegen) }),
@@ -195,7 +203,7 @@ export default function ItineraryMapView({ itineraryId, itinerary: initialItiner
 
       if (!response.ok) {
         const body = await response.json().catch(() => null);
-        throw new Error(body?.detail ?? `Erreur ${response.status}`);
+        throw new Error(body?.detail ?? t("common.error.status", { status: response.status }));
       }
 
       const updated: ItineraryViewData = await response.json();
@@ -204,7 +212,7 @@ export default function ItineraryMapView({ itineraryId, itinerary: initialItiner
       setSelectedForRegen(new Set());
       setSelectedKey(null);
     } catch (err) {
-      setRegenError(err instanceof Error ? err.message : "Une erreur est survenue.");
+      setRegenError(err instanceof Error ? err.message : t("common.error.generic"));
     } finally {
       setIsRegenerating(false);
     }
@@ -222,7 +230,9 @@ export default function ItineraryMapView({ itineraryId, itinerary: initialItiner
         >
           {isEditing && (
             <div className="mb-3 flex items-center justify-between gap-2 rounded-xl bg-violet-50 px-3 py-2 dark:bg-violet-500/10">
-              <span className="text-xs font-medium text-violet-700 dark:text-violet-300">Mode édition</span>
+              <span className="text-xs font-medium text-violet-700 dark:text-violet-300">
+                {t("itineraryMap.editMode")}
+              </span>
               <div className="flex shrink-0 items-center gap-1.5">
                 <button
                   type="button"
@@ -230,13 +240,13 @@ export default function ItineraryMapView({ itineraryId, itinerary: initialItiner
                   disabled={selectedCount === 0 || isRegenerating}
                   className="rounded-full bg-violet-600 px-3.5 py-1.5 text-xs font-semibold whitespace-nowrap text-white transition hover:bg-violet-700 disabled:cursor-not-allowed disabled:bg-zinc-200 disabled:text-zinc-400 dark:disabled:bg-zinc-800 dark:disabled:text-zinc-500"
                 >
-                  {isRegenerating ? "Génération…" : regenerateLabel}
+                  {isRegenerating ? t("itineraryMap.regenerating") : regenerateLabel}
                 </button>
                 <button
                   type="button"
                   onClick={handleCancelEdit}
                   disabled={isRegenerating}
-                  title="Annuler"
+                  title={t("itineraryMap.cancel")}
                   className="flex size-8 shrink-0 items-center justify-center rounded-full text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-700 disabled:opacity-50 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
                 >
                   <X className="size-4" />
@@ -247,7 +257,7 @@ export default function ItineraryMapView({ itineraryId, itinerary: initialItiner
 
           <div className="flex items-start justify-between gap-3">
             <p className="text-3xl font-semibold">
-              Votre voyage à{" "}
+              {t("itineraryMap.yourTripTo")}{" "}
               <b className="text-bold">{formatDestination(itinerary.destination_city, itinerary.destination_country)}</b>
             </p>
 
@@ -256,7 +266,7 @@ export default function ItineraryMapView({ itineraryId, itinerary: initialItiner
                 <button
                   type="button"
                   onClick={handleCopyShareLink}
-                  title="Copier le lien de partage"
+                  title={t("itineraryMap.copyLink")}
                   className="flex size-8 items-center justify-center rounded-full text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
                 >
                   <Share2 className="size-4" />
@@ -264,7 +274,7 @@ export default function ItineraryMapView({ itineraryId, itinerary: initialItiner
                 <button
                   type="button"
                   onClick={handleStartEdit}
-                  title="Modifier le voyage"
+                  title={t("itineraryMap.editTrip")}
                   className="flex size-8 items-center justify-center rounded-full text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
                 >
                   <Pencil className="size-4" />
@@ -280,7 +290,7 @@ export default function ItineraryMapView({ itineraryId, itinerary: initialItiner
                   key={tripType}
                   className="rounded-full bg-violet-100 px-2.5 py-0.5 text-xs font-semibold text-violet-700 dark:bg-violet-500/15 dark:text-violet-300"
                 >
-                  {tripType}
+                  {translateTripType(tripType, locale)}
                 </span>
               ))}
             </div>
@@ -303,7 +313,7 @@ export default function ItineraryMapView({ itineraryId, itinerary: initialItiner
                 onClick={() => setSelectedForRegen(selectedCount === itemKeys.length ? new Set() : new Set(itemKeys))}
                 className="text-xs font-medium text-violet-600 hover:underline dark:text-violet-400"
               >
-                {selectedCount === itemKeys.length ? "Tout désélectionner" : "Tout sélectionner"}
+                {selectedCount === itemKeys.length ? t("itineraryMap.deselectAll") : t("itineraryMap.selectAll")}
               </button>
             </div>
           )}
@@ -336,7 +346,8 @@ export default function ItineraryMapView({ itineraryId, itinerary: initialItiner
 
                 <div className={`min-w-0 flex-1 ${isLastDay ? "" : "pb-6"}`}>
                   <p className="mb-3 pt-1 text-sm font-semibold capitalize text-zinc-800 dark:text-zinc-100">
-                    Jour {day.day_number} — {format(parseISO(day.date), "EEEE d MMMM", { locale: fr })}
+                    {t("itineraryMap.dayLabel")} {day.day_number} —{" "}
+                    {format(parseISO(day.date), "EEEE d MMMM", { locale: dateLocale })}
                   </p>
 
                   <div className="space-y-2">
@@ -384,7 +395,7 @@ export default function ItineraryMapView({ itineraryId, itinerary: initialItiner
                         />
                       );
                     })}
-                    {isDayEmpty && <p className="text-sm text-zinc-400">Rien de prévu ce jour-là.</p>}
+                    {isDayEmpty && <p className="text-sm text-zinc-400">{t("itineraryMap.emptyDay")}</p>}
                   </div>
                 </div>
               </div>
@@ -406,7 +417,7 @@ export default function ItineraryMapView({ itineraryId, itinerary: initialItiner
                 : "text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800"
             }`}
           >
-            Tout
+            {t("itineraryMap.all")}
           </button>
           {itinerary.days.map((day) => {
             const isActive = day.day_number === selectedDay;
@@ -415,14 +426,14 @@ export default function ItineraryMapView({ itineraryId, itinerary: initialItiner
                 key={day.day_number}
                 type="button"
                 onClick={() => handleDayButtonClick(day.day_number)}
-                title={format(parseISO(day.date), "EEEE d MMMM", { locale: fr })}
+                title={format(parseISO(day.date), "EEEE d MMMM", { locale: dateLocale })}
                 className={`flex h-9 items-center justify-center rounded-full text-sm font-semibold transition ${
                   isActive
                     ? "bg-violet-600 px-4 text-white shadow"
                     : "size-9 text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800"
                 }`}
               >
-                {isActive ? `Jour ${day.day_number}` : day.day_number}
+                {isActive ? `${t("itineraryMap.dayLabel")} ${day.day_number}` : day.day_number}
               </button>
             );
           })}
@@ -432,7 +443,7 @@ export default function ItineraryMapView({ itineraryId, itinerary: initialItiner
       {showCopiedToast && (
         <div className="fixed bottom-6 left-1/2 z-[2000] flex -translate-x-1/2 items-center gap-2 rounded-full bg-zinc-900 px-4 py-2.5 text-sm font-medium text-white shadow-lg dark:bg-zinc-100 dark:text-zinc-900">
           <Check className="size-4 text-emerald-400 dark:text-emerald-600" />
-          Lien de partage copié
+          {t("itineraryMap.linkCopied")}
         </div>
       )}
     </div>

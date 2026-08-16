@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Clock } from "lucide-react";
+import { useLanguage } from "@/lib/i18n/LanguageProvider";
 import DayRangeSlider from "./DayRangeSlider";
 
 interface DayRangeDropdownProps {
@@ -15,6 +16,7 @@ interface DayRangeDropdownProps {
 const PANEL_WIDTH = 256; // matches w-64
 
 export default function DayRangeDropdown({ min, max, value, onChange }: DayRangeDropdownProps) {
+  const { t } = useLanguage();
   const [isOpen, setIsOpen] = useState(false);
   const [position, setPosition] = useState<{ top: number; left: number } | null>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -50,7 +52,11 @@ export default function DayRangeDropdown({ min, max, value, onChange }: DayRange
 
   const [lo, hi] = value;
   const isFiltered = lo !== min || hi !== max;
-  const label = !isFiltered ? "Durée" : lo === hi ? `${lo} jour${lo > 1 ? "s" : ""}` : `${lo}–${hi} jours`;
+  const label = !isFiltered
+    ? t("library.dayFilter.label")
+    : lo === hi
+      ? `${lo} ${lo > 1 ? t("common.days") : t("common.day")}`
+      : `${lo}–${hi} ${t("common.days")}`;
 
   return (
     <div className="relative shrink-0">
@@ -88,7 +94,7 @@ export default function DayRangeDropdown({ min, max, value, onChange }: DayRange
                 onClick={() => onChange([min, max])}
                 className="mt-3 text-xs font-medium text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200"
               >
-                Réinitialiser
+                {t("library.dayFilter.reset")}
               </button>
             )}
           </div>,

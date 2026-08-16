@@ -1,6 +1,9 @@
+"use client";
+
 import { format, parseISO } from "date-fns";
-import { fr } from "date-fns/locale";
 import { Clock, ExternalLink, MapPin, UtensilsCrossed } from "lucide-react";
+import { useDateFnsLocale, useLanguage } from "@/lib/i18n/LanguageProvider";
+import { translateTripType } from "@/lib/i18n/tripTypeLabels";
 import { formatDestination, type ItineraryActivity, type ItineraryRestaurant, type ItineraryViewData } from "./types";
 
 interface ItineraryResultViewProps {
@@ -8,6 +11,9 @@ interface ItineraryResultViewProps {
 }
 
 export default function ItineraryResultView({ itinerary }: ItineraryResultViewProps) {
+  const { locale } = useLanguage();
+  const dateLocale = useDateFnsLocale();
+
   return (
     <div className="space-y-6">
       <div className="text-center">
@@ -21,7 +27,7 @@ export default function ItineraryResultView({ itinerary }: ItineraryResultViewPr
                 key={tripType}
                 className="rounded-full bg-violet-100 px-2.5 py-0.5 text-xs font-semibold text-violet-700 dark:bg-violet-500/15 dark:text-violet-300"
               >
-                {tripType}
+                {translateTripType(tripType, locale)}
               </span>
             ))}
           </div>
@@ -40,7 +46,7 @@ export default function ItineraryResultView({ itinerary }: ItineraryResultViewPr
                 {day.day_number}
               </span>
               <span className="text-sm font-semibold capitalize text-zinc-800 dark:text-zinc-100">
-                {format(parseISO(day.date), "EEEE d MMMM", { locale: fr })}
+                {format(parseISO(day.date), "EEEE d MMMM", { locale: dateLocale })}
               </span>
             </div>
 
@@ -73,6 +79,8 @@ function PlaceCard({
   place: ItineraryActivity | ItineraryRestaurant;
   detail: string;
 }) {
+  const { t } = useLanguage();
+
   return (
     <div className="flex gap-2.5 rounded-xl bg-zinc-50 p-3 dark:bg-zinc-800/60">
       <Icon className="mt-0.5 size-4 shrink-0 text-violet-500" strokeWidth={2.25} />
@@ -96,7 +104,7 @@ function PlaceCard({
             className="inline-flex items-center gap-1 text-violet-600 hover:underline dark:text-violet-400"
           >
             <ExternalLink className="size-3.5" />
-            Source
+            {t("itineraryResult.source")}
           </a>
         </div>
       </div>

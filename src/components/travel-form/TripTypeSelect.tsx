@@ -1,6 +1,8 @@
 "use client";
 
 import { Check } from "lucide-react";
+import { useLanguage } from "@/lib/i18n/LanguageProvider";
+import { translateTripType } from "@/lib/i18n/tripTypeLabels";
 import { MAX_TRIP_TYPES, TRIP_TYPES } from "./types";
 
 interface TripTypeSelectProps {
@@ -9,6 +11,8 @@ interface TripTypeSelectProps {
 }
 
 export default function TripTypeSelect({ selected, onChange }: TripTypeSelectProps) {
+  const { t, locale } = useLanguage();
+
   function toggle(type: string) {
     if (selected.includes(type)) {
       onChange(selected.filter((t) => t !== type));
@@ -20,7 +24,9 @@ export default function TripTypeSelect({ selected, onChange }: TripTypeSelectPro
   return (
     <div>
       <div className="mb-4 flex items-center justify-between">
-        <p className="text-sm text-zinc-500 dark:text-zinc-400">Choisis jusqu&apos;à {MAX_TRIP_TYPES} ambiances</p>
+        <p className="text-sm text-zinc-500 dark:text-zinc-400">
+          {t("tripTypeSelect.helper", { max: MAX_TRIP_TYPES })}
+        </p>
         <span
           className={`rounded-full px-2.5 py-1 text-xs font-semibold ${
             selected.length === MAX_TRIP_TYPES
@@ -51,7 +57,7 @@ export default function TripTypeSelect({ selected, onChange }: TripTypeSelectPro
               }`}
             >
               {isSelected && <Check className="size-3.5" strokeWidth={3} />}
-              {type}
+              {translateTripType(type, locale)}
             </button>
           );
         })}

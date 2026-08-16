@@ -83,12 +83,12 @@ export function formatDestination(city: string | null, country: string): string 
   return city ? `${city}, ${country}` : country;
 }
 
-export const TRAVELER_TYPES: { id: TravelerType; label: string; defaultCount: number }[] = [
-  { id: "solo", label: "Solo", defaultCount: 1 },
-  { id: "couple", label: "Couple", defaultCount: 2 },
-  { id: "famille", label: "Famille", defaultCount: 4 },
-  { id: "amis", label: "Amis", defaultCount: 4 },
-  { id: "groupe", label: "Groupe", defaultCount: 8 },
+export const TRAVELER_TYPES: { id: TravelerType; defaultCount: number }[] = [
+  { id: "solo", defaultCount: 1 },
+  { id: "couple", defaultCount: 2 },
+  { id: "famille", defaultCount: 4 },
+  { id: "amis", defaultCount: 4 },
+  { id: "groupe", defaultCount: 8 },
 ];
 
 export const TRIP_TYPES: string[] = [
@@ -115,9 +115,9 @@ export const TRIP_TYPES: string[] = [
 export const MAX_TRIP_TYPES = 5;
 
 export const STEPS = [
-  { id: 1, label: "Séjour" },
-  { id: 2, label: "Type de voyage" },
-  { id: 3, label: "Résumé" },
+  { id: 1, labelKey: "steps.stay" },
+  { id: 2, labelKey: "steps.tripType" },
+  { id: 3, labelKey: "steps.summary" },
 ] as const;
 
 export const INITIAL_FORM_DATA: TravelFormData = {

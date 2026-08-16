@@ -1,5 +1,7 @@
 "use client";
 
+import { useLanguage } from "@/lib/i18n/LanguageProvider";
+
 interface DayRangeSliderProps {
   min: number;
   max: number;
@@ -8,6 +10,7 @@ interface DayRangeSliderProps {
 }
 
 export default function DayRangeSlider({ min, max, value, onChange }: DayRangeSliderProps) {
+  const { t } = useLanguage();
   const [lo, hi] = value;
   const loPercent = ((lo - min) / (max - min)) * 100;
   const hiPercent = ((hi - min) / (max - min)) * 100;
@@ -15,7 +18,7 @@ export default function DayRangeSlider({ min, max, value, onChange }: DayRangeSl
   return (
     <div className="flex flex-col gap-3">
       <p className="text-center text-sm font-semibold text-zinc-900 dark:text-zinc-100">
-        {lo === hi ? `${lo} jour${lo > 1 ? "s" : ""}` : `${lo}–${hi} jours`}
+        {lo === hi ? `${lo} ${lo > 1 ? t("common.days") : t("common.day")}` : `${lo}–${hi} ${t("common.days")}`}
       </p>
 
       <div className="relative h-5">
@@ -31,7 +34,7 @@ export default function DayRangeSlider({ min, max, value, onChange }: DayRangeSl
           value={lo}
           onChange={(e) => onChange([Math.min(Number(e.target.value), hi), hi])}
           className="dual-range-thumb absolute inset-0 w-full appearance-none bg-transparent"
-          aria-label="Nombre de jours minimum"
+          aria-label={t("library.dayFilter.ariaMin")}
         />
         <input
           type="range"
@@ -40,7 +43,7 @@ export default function DayRangeSlider({ min, max, value, onChange }: DayRangeSl
           value={hi}
           onChange={(e) => onChange([lo, Math.max(Number(e.target.value), lo)])}
           className="dual-range-thumb absolute inset-0 w-full appearance-none bg-transparent"
-          aria-label="Nombre de jours maximum"
+          aria-label={t("library.dayFilter.ariaMax")}
         />
       </div>
 
