@@ -7,7 +7,7 @@ import httpx
 from anthropic import Anthropic
 
 from app.core.config import settings
-from app.schemas.itinerary import Activity, ItineraryRequest, ItineraryResponse, Restaurant
+from app.schemas.itinerary import Activity, ItineraryCreateResponse, ItineraryRequest, ItineraryResponse, Restaurant
 from app.services.storage import save_itinerary
 
 logger = logging.getLogger(__name__)
@@ -160,7 +160,7 @@ def _geocode_itinerary(destination: str, itinerary: ItineraryResponse) -> None:
             _geocode_place(destination, restaurant)
 
 
-def generate_itinerary(request: ItineraryRequest) -> ItineraryResponse:
+def generate_itinerary(request: ItineraryRequest) -> ItineraryCreateResponse:
     messages: list[dict] = [{"role": "user", "content": _build_prompt(request)}]
     response = _run(messages)
 
@@ -183,10 +183,11 @@ def generate_itinerary(request: ItineraryRequest) -> ItineraryResponse:
 
     _geocode_itinerary(request.city.name, itinerary)
 
+    itinerary_id: str | None = None
     try:
-        save_itinerary(request, itinerary)
+        itinerary_id = save_itinerary(request, itinerary)
     except Exception:
         # Persistence is a side effect — don't fail the request over it.
         logger.exception("Failed to save itinerary to Supabase")
 
-    return itinerary
+    return ItineraryCreateResponse(**itinerary.model_dump(), id=itinerary_id)

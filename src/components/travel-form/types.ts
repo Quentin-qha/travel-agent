@@ -52,8 +52,15 @@ export interface ItineraryDay {
 }
 
 export interface ItineraryResult {
+  id: string | null;
   destination_city: string | null;
   destination_country: string;
+  summary: string;
+  days: ItineraryDay[];
+}
+
+export interface ItineraryViewData {
+  destination: string;
   summary: string;
   days: ItineraryDay[];
 }

@@ -89,3 +89,16 @@ class ItineraryResponse(BaseModel):
     destination_country: str
     summary: str
     days: list[DayPlan]
+
+
+class ItineraryCreateResponse(ItineraryResponse):
+    id: str | None = None
+
+
+class ItineraryDetail(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    destination: str
+    summary: str
+    days: list[DayPlan]

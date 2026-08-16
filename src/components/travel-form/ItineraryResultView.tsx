@@ -1,21 +1,17 @@
 import { format, parseISO } from "date-fns";
 import { fr } from "date-fns/locale";
 import { Clock, ExternalLink, MapPin, UtensilsCrossed } from "lucide-react";
-import type { ItineraryActivity, ItineraryResult, ItineraryRestaurant } from "./types";
+import type { ItineraryActivity, ItineraryRestaurant, ItineraryViewData } from "./types";
 
 interface ItineraryResultViewProps {
-  itinerary: ItineraryResult;
+  itinerary: ItineraryViewData;
 }
 
 export default function ItineraryResultView({ itinerary }: ItineraryResultViewProps) {
-  const destination = itinerary.destination_city
-    ? `${itinerary.destination_city}, ${itinerary.destination_country}`
-    : itinerary.destination_country;
-
   return (
     <div className="space-y-6">
       <div className="text-center">
-        <p className="text-sm font-semibold text-violet-600 dark:text-violet-400">{destination}</p>
+        <p className="text-sm font-semibold text-violet-600 dark:text-violet-400">{itinerary.destination}</p>
         <p className="mx-auto mt-1.5 max-w-lg text-sm text-zinc-600 dark:text-zinc-300">{itinerary.summary}</p>
       </div>
 
