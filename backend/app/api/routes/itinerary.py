@@ -1,7 +1,13 @@
 from fastapi import APIRouter, HTTPException
 
-from app.schemas.itinerary import ItineraryCreateResponse, ItineraryDetail, ItineraryRequest, ItinerarySummary
-from app.services.itinerary_agent import generate_itinerary
+from app.schemas.itinerary import (
+    ItineraryCreateResponse,
+    ItineraryDetail,
+    ItineraryRequest,
+    ItinerarySummary,
+    RegenerateItineraryRequest,
+)
+from app.services.itinerary_agent import generate_itinerary, regenerate_itinerary
 from app.services.storage import get_itinerary, list_itineraries
 
 router = APIRouter()
@@ -26,3 +32,13 @@ def read_itinerary(itinerary_id: str) -> ItineraryDetail:
     if itinerary is None:
         raise HTTPException(status_code=404, detail="Itinéraire introuvable.")
     return itinerary
+
+
+@router.post("/itinerary/{itinerary_id}/regenerate", response_model=ItineraryDetail)
+def regenerate_itinerary_route(itinerary_id: str, request: RegenerateItineraryRequest) -> ItineraryDetail:
+    try:
+        return regenerate_itinerary(itinerary_id, request.item_keys)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc

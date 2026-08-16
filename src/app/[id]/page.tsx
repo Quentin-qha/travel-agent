@@ -25,5 +25,5 @@ export default async function CatchAllPage(props: PageProps<"/[id]">) {
 
   const itinerary = await response.json();
 
-  return <ItineraryMapView itinerary={itinerary} />;
+  return <ItineraryMapView itineraryId={id} itinerary={itinerary} />;
 }

@@ -4,7 +4,7 @@ import "leaflet/dist/leaflet.css";
 import L from "leaflet";
 import { useEffect, useRef } from "react";
 import { MapContainer, TileLayer, Marker, Popup, ZoomControl, useMap } from "react-leaflet";
-import { ExternalLink, MapPin, UtensilsCrossed } from "lucide-react";
+import { MapPin, UtensilsCrossed } from "lucide-react";
 
 export interface MapPoint {
   key: string;
@@ -125,20 +125,9 @@ export default function ItineraryMap({ points, selectedKey, onSelect, fallbackCe
                 {point.name}
               </div>
               <p className="mt-1 text-xs text-zinc-500">{point.description}</p>
-              <div className="mt-1.5 flex items-center justify-between gap-2 text-xs text-zinc-400">
-                <span>
-                  {point.detail} · {point.budgetLevel}
-                </span>
-                <a
-                  href={point.sourceUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex shrink-0 items-center gap-1 text-violet-600 hover:underline"
-                >
-                  <ExternalLink className="size-3" />
-                  Source
-                </a>
-              </div>
+              <p className="mt-1.5 text-xs text-zinc-400">
+                {point.detail} · {point.budgetLevel}
+              </p>
             </div>
           </Popup>
         </Marker>

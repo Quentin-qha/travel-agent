@@ -4,7 +4,7 @@ import dynamic from "next/dynamic";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { format, parseISO } from "date-fns";
 import { fr } from "date-fns/locale";
-import { Clock, ExternalLink, MapPin, UtensilsCrossed } from "lucide-react";
+import { Check, Clock, MapPin, Pencil, Share2, TriangleAlert, UtensilsCrossed, X } from "lucide-react";
 import {
   formatDestination,
   type ItineraryActivity,
@@ -13,6 +13,8 @@ import {
   type ItineraryViewData,
 } from "./types";
 import type { MapPoint } from "./ItineraryMap";
+
+const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
 const ItineraryMap = dynamic(() => import("./ItineraryMap"), {
   ssr: false,
@@ -24,6 +26,7 @@ const ItineraryMap = dynamic(() => import("./ItineraryMap"), {
 });
 
 interface ItineraryMapViewProps {
+  itineraryId: string;
   itinerary: ItineraryViewData;
 }
 
@@ -64,6 +67,13 @@ function buildPoints(day: ItineraryDay | undefined): MapPoint[] {
   return points;
 }
 
+function allItemKeys(days: ItineraryDay[]): string[] {
+  return days.flatMap((day) => [
+    ...day.activities.map((_, index) => `${day.day_number}-activity-${index}`),
+    ...day.restaurants.map((_, index) => `${day.day_number}-restaurant-${index}`),
+  ]);
+}
+
 const PARIS_FALLBACK: [number, number] = [48.8566, 2.3522];
 
 function computeFallbackCenter(days: ItineraryDay[]): [number, number] {
@@ -75,13 +85,20 @@ function computeFallbackCenter(days: ItineraryDay[]): [number, number] {
 
 type DaySelection = number | "all";
 
-export default function ItineraryMapView({ itinerary }: ItineraryMapViewProps) {
+export default function ItineraryMapView({ itineraryId, itinerary: initialItinerary }: ItineraryMapViewProps) {
+  const [itinerary, setItinerary] = useState(initialItinerary);
   const [selectedDay, setSelectedDay] = useState<DaySelection>(itinerary.days[0]?.day_number ?? 1);
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const itemRefs = useRef(new Map<string, HTMLDivElement>());
   const dayRefs = useRef(new Map<number, HTMLDivElement>());
   const sidebarRef = useRef<HTMLDivElement>(null);
   const stickyHeaderRef = useRef<HTMLDivElement>(null);
+
+  const [isEditing, setIsEditing] = useState(false);
+  const [selectedForRegen, setSelectedForRegen] = useState<Set<string>>(new Set());
+  const [isRegenerating, setIsRegenerating] = useState(false);
+  const [regenError, setRegenError] = useState<string | null>(null);
+  const [showCopiedToast, setShowCopiedToast] = useState(false);
 
   const activeDays = useMemo(
     () => (selectedDay === "all" ? itinerary.days : itinerary.days.filter((day) => day.day_number === selectedDay)),
@@ -91,6 +108,15 @@ export default function ItineraryMapView({ itinerary }: ItineraryMapViewProps) {
   const points = useMemo(() => activeDays.flatMap((day) => buildPoints(day)), [activeDays]);
 
   const fallbackCenter = useMemo(() => computeFallbackCenter(itinerary.days), [itinerary.days]);
+
+  const itemKeys = useMemo(() => allItemKeys(itinerary.days), [itinerary.days]);
+  const selectedCount = selectedForRegen.size;
+  const regenerateLabel =
+    selectedCount === 0
+      ? "Aucun élément sélectionné"
+      : selectedCount === itemKeys.length
+        ? "Régénérer"
+        : `Changer les éléments sélectionnés (${selectedCount})`;
 
   useEffect(() => {
     if (!selectedKey) return;
@@ -123,6 +149,67 @@ export default function ItineraryMapView({ itinerary }: ItineraryMapViewProps) {
     container.scrollTo({ top: container.scrollTop + delta, behavior: "smooth" });
   }
 
+  function handleStartEdit() {
+    setIsEditing(true);
+    setSelectedForRegen(new Set(itemKeys));
+    setRegenError(null);
+  }
+
+  function handleCancelEdit() {
+    setIsEditing(false);
+    setSelectedForRegen(new Set());
+    setRegenError(null);
+  }
+
+  async function handleCopyShareLink() {
+    try {
+      await navigator.clipboard.writeText(window.location.href);
+    } catch {
+      return;
+    }
+    setShowCopiedToast(true);
+    setTimeout(() => setShowCopiedToast(false), 2000);
+  }
+
+  function toggleItemForRegen(key: string) {
+    setSelectedForRegen((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }
+
+  async function handleRegenerate() {
+    if (selectedForRegen.size === 0 || isRegenerating) return;
+
+    setIsRegenerating(true);
+    setRegenError(null);
+
+    try {
+      const response = await fetch(`${API_URL}/api/itinerary/${itineraryId}/regenerate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ itemKeys: Array.from(selectedForRegen) }),
+      });
+
+      if (!response.ok) {
+        const body = await response.json().catch(() => null);
+        throw new Error(body?.detail ?? `Erreur ${response.status}`);
+      }
+
+      const updated: ItineraryViewData = await response.json();
+      setItinerary(updated);
+      setIsEditing(false);
+      setSelectedForRegen(new Set());
+      setSelectedKey(null);
+    } catch (err) {
+      setRegenError(err instanceof Error ? err.message : "Une erreur est survenue.");
+    } finally {
+      setIsRegenerating(false);
+    }
+  }
+
   return (
     <div className="flex h-svh flex-col lg:flex-row">
       <div
@@ -133,10 +220,59 @@ export default function ItineraryMapView({ itinerary }: ItineraryMapViewProps) {
           ref={stickyHeaderRef}
           className="sticky top-0 z-10 border-b border-zinc-200 bg-white/90 px-5 py-4 backdrop-blur-sm dark:border-zinc-800 dark:bg-zinc-950/90"
         >
-          <p className="text-3xl font-semibold">
-            Votre voyage à{" "}
-            <b className="text-bold">{formatDestination(itinerary.destination_city, itinerary.destination_country)}</b>
-          </p>
+          {isEditing && (
+            <div className="mb-3 flex items-center justify-between gap-2 rounded-xl bg-violet-50 px-3 py-2 dark:bg-violet-500/10">
+              <span className="text-xs font-medium text-violet-700 dark:text-violet-300">Mode édition</span>
+              <div className="flex shrink-0 items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={handleRegenerate}
+                  disabled={selectedCount === 0 || isRegenerating}
+                  className="rounded-full bg-violet-600 px-3.5 py-1.5 text-xs font-semibold whitespace-nowrap text-white transition hover:bg-violet-700 disabled:cursor-not-allowed disabled:bg-zinc-200 disabled:text-zinc-400 dark:disabled:bg-zinc-800 dark:disabled:text-zinc-500"
+                >
+                  {isRegenerating ? "Génération…" : regenerateLabel}
+                </button>
+                <button
+                  type="button"
+                  onClick={handleCancelEdit}
+                  disabled={isRegenerating}
+                  title="Annuler"
+                  className="flex size-8 shrink-0 items-center justify-center rounded-full text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-700 disabled:opacity-50 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
+                >
+                  <X className="size-4" />
+                </button>
+              </div>
+            </div>
+          )}
+
+          <div className="flex items-start justify-between gap-3">
+            <p className="text-3xl font-semibold">
+              Votre voyage à{" "}
+              <b className="text-bold">{formatDestination(itinerary.destination_city, itinerary.destination_country)}</b>
+            </p>
+
+            {!isEditing && (
+              <div className="flex shrink-0 items-center gap-1">
+                <button
+                  type="button"
+                  onClick={handleCopyShareLink}
+                  title="Copier le lien de partage"
+                  className="flex size-8 items-center justify-center rounded-full text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
+                >
+                  <Share2 className="size-4" />
+                </button>
+                <button
+                  type="button"
+                  onClick={handleStartEdit}
+                  title="Modifier le voyage"
+                  className="flex size-8 items-center justify-center rounded-full text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
+                >
+                  <Pencil className="size-4" />
+                </button>
+              </div>
+            )}
+          </div>
+
           {itinerary.trip_types.length > 0 && (
             <div className="mt-2 flex flex-wrap gap-1.5">
               {itinerary.trip_types.map((tripType) => (
@@ -150,9 +286,27 @@ export default function ItineraryMapView({ itinerary }: ItineraryMapViewProps) {
             </div>
           )}
           <p className="mt-2 text-sm text-zinc-500 dark:text-zinc-400">{itinerary.summary}</p>
+
+          {regenError && (
+            <div className="mt-2.5 flex items-start gap-1.5 rounded-lg border border-red-200 bg-red-50 px-2.5 py-2 text-xs text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-400">
+              <TriangleAlert className="mt-0.5 size-3.5 shrink-0" />
+              <span>{regenError}</span>
+            </div>
+          )}
         </div>
 
         <div className="flex-1 px-4 py-4">
+          {isEditing && (
+            <div className="mb-3 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setSelectedForRegen(selectedCount === itemKeys.length ? new Set() : new Set(itemKeys))}
+                className="text-xs font-medium text-violet-600 hover:underline dark:text-violet-400"
+              >
+                {selectedCount === itemKeys.length ? "Tout désélectionner" : "Tout sélectionner"}
+              </button>
+            </div>
+          )}
           {itinerary.days.map((day, dayIndex) => {
             const isLastDay = dayIndex === itinerary.days.length - 1;
             const isActiveDay = day.day_number === selectedDay;
@@ -202,6 +356,9 @@ export default function ItineraryMapView({ itinerary }: ItineraryMapViewProps) {
                             if (el) itemRefs.current.set(cardKey, el);
                             else itemRefs.current.delete(cardKey);
                           }}
+                          editable={isEditing}
+                          checked={selectedForRegen.has(cardKey)}
+                          onToggleCheck={() => toggleItemForRegen(cardKey)}
                         />
                       );
                     })}
@@ -221,6 +378,9 @@ export default function ItineraryMapView({ itinerary }: ItineraryMapViewProps) {
                             if (el) itemRefs.current.set(cardKey, el);
                             else itemRefs.current.delete(cardKey);
                           }}
+                          editable={isEditing}
+                          checked={selectedForRegen.has(cardKey)}
+                          onToggleCheck={() => toggleItemForRegen(cardKey)}
                         />
                       );
                     })}
@@ -268,6 +428,13 @@ export default function ItineraryMapView({ itinerary }: ItineraryMapViewProps) {
           })}
         </div>
       </div>
+
+      {showCopiedToast && (
+        <div className="fixed bottom-6 left-1/2 z-[2000] flex -translate-x-1/2 items-center gap-2 rounded-full bg-zinc-900 px-4 py-2.5 text-sm font-medium text-white shadow-lg dark:bg-zinc-100 dark:text-zinc-900">
+          <Check className="size-4 text-emerald-400 dark:text-emerald-600" />
+          Lien de partage copié
+        </div>
+      )}
     </div>
   );
 }
@@ -281,6 +448,9 @@ function SidebarCard({
   selected,
   onSelect,
   registerRef,
+  editable,
+  checked,
+  onToggleCheck,
 }: {
   cardKey: string;
   icon: typeof MapPin;
@@ -290,17 +460,33 @@ function SidebarCard({
   selected: boolean;
   onSelect: (key: string) => void;
   registerRef: (el: HTMLDivElement | null) => void;
+  editable: boolean;
+  checked: boolean;
+  onToggleCheck: () => void;
 }) {
   return (
     <div
       ref={registerRef}
-      onClick={() => onSelect(cardKey)}
+      onClick={() => (editable ? onToggleCheck() : onSelect(cardKey))}
       className={`flex cursor-pointer gap-2.5 rounded-xl border p-3 transition ${
-        selected
-          ? "border-violet-400 bg-violet-50 dark:border-violet-500/50 dark:bg-violet-500/10"
-          : "border-transparent bg-zinc-50 hover:border-zinc-200 dark:bg-zinc-800/60 dark:hover:border-zinc-700"
+        editable
+          ? checked
+            ? "border-violet-400 bg-violet-50 dark:border-violet-500/50 dark:bg-violet-500/10"
+            : "border-transparent bg-zinc-50 opacity-60 dark:bg-zinc-800/60"
+          : selected
+            ? "border-violet-400 bg-violet-50 dark:border-violet-500/50 dark:bg-violet-500/10"
+            : "border-transparent bg-zinc-50 hover:border-zinc-200 dark:bg-zinc-800/60 dark:hover:border-zinc-700"
       }`}
     >
+      {editable && (
+        <input
+          type="checkbox"
+          checked={checked}
+          onChange={onToggleCheck}
+          onClick={(event) => event.stopPropagation()}
+          className="mt-1 size-4 shrink-0 accent-violet-600"
+        />
+      )}
       <Icon className={`mt-0.5 size-4 shrink-0 ${iconColor}`} strokeWidth={2.25} />
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
@@ -310,22 +496,10 @@ function SidebarCard({
           </span>
         </div>
         <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">{place.description}</p>
-        <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-zinc-400 dark:text-zinc-500">
-          <span className="inline-flex items-center gap-1">
-            <Clock className="size-3.5" />
-            {detail}
-          </span>
-          <a
-            href={place.source_url}
-            target="_blank"
-            rel="noopener noreferrer"
-            onClick={(event) => event.stopPropagation()}
-            className="inline-flex items-center gap-1 text-violet-600 hover:underline dark:text-violet-400"
-          >
-            <ExternalLink className="size-3.5" />
-            Source
-          </a>
-        </div>
+        <span className="mt-1.5 inline-flex items-center gap-1 text-xs text-zinc-400 dark:text-zinc-500">
+          <Clock className="size-3.5" />
+          {detail}
+        </span>
       </div>
     </div>
   );

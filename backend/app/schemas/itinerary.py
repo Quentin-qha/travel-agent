@@ -122,3 +122,35 @@ class ItinerarySummary(BaseModel):
     summary: str
     day_count: int
     created_at: str
+
+
+class RegenerateItineraryRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+
+    # Card keys from the UI, e.g. "2-activity-0" — every item currently
+    # persisted must be identifiable this way (see ItineraryEditor parsing).
+    item_keys: list[str] = Field(alias="itemKeys", min_length=1)
+
+
+class ItineraryContext(BaseModel):
+    """Original request parameters reconstructed from storage, for regeneration."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    destination_city: str | None
+    destination_country: str
+    city_lat: float
+    city_lon: float
+    traveler_type: TravelerType
+    traveler_count: int
+    trip_types: list[str]
+    day_dates: list[date]
+
+
+class DayItemsResponse(BaseModel):
+    """Structured output for a scoped, single-day partial regeneration."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    activities: list[Activity]
+    restaurants: list[Restaurant]
