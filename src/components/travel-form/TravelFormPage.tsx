@@ -1,3 +1,5 @@
+import Link from "next/link";
+import { BookOpen } from "lucide-react";
 import TravelForm from "./TravelForm";
 
 interface TravelFormPageProps {
@@ -17,6 +19,13 @@ export default function TravelFormPage({ name }: TravelFormPageProps) {
           <p className="mt-1.5 text-sm text-zinc-500 dark:text-zinc-400">
             Réponds à quelques questions, on s&apos;occupe du reste.
           </p>
+          <Link
+            href="/library"
+            className="mt-3 inline-flex items-center gap-1.5 text-sm font-medium text-violet-600 hover:underline dark:text-violet-400"
+          >
+            <BookOpen className="size-3.5" />
+            Voir des idées de voyages
+          </Link>
         </div>
 
         <TravelForm />

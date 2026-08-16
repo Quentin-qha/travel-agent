@@ -85,7 +85,7 @@ class DayPlan(BaseModel):
 class ItineraryResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    destination_city: str | None = None
+    destination_city: str
     destination_country: str
     summary: str
     days: list[DayPlan]
@@ -93,12 +93,32 @@ class ItineraryResponse(BaseModel):
 
 class ItineraryCreateResponse(ItineraryResponse):
     id: str | None = None
+    # Echoed back from the request (Claude never sees/produces this) so the
+    # frontend can display the chosen ambiances without a second round trip.
+    trip_types: list[str] = Field(default_factory=list)
 
 
 class ItineraryDetail(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     id: str
-    destination: str
+    # Nullable here (unlike ItineraryResponse.destination_city) to tolerate rows
+    # saved before destination_city was a required field.
+    destination_city: str | None = None
+    destination_country: str
     summary: str
+    trip_types: list[str] = Field(default_factory=list)
     days: list[DayPlan]
+
+
+class ItinerarySummary(BaseModel):
+    """Lightweight listing shape — no activities/restaurants, just enough for a library card."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    destination_city: str | None = None
+    destination_country: str
+    summary: str
+    day_count: int
+    created_at: str
