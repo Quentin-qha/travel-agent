@@ -19,7 +19,7 @@ export default function GenerationLoaderModal() {
   }, [loadingSteps.length]);
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col items-center justify-center gap-8 bg-white/90 backdrop-blur-sm dark:bg-zinc-950/90">
+    <div className="fixed inset-0 z-[9999] flex flex-col items-center justify-center gap-8 bg-white/90 backdrop-blur-sm dark:bg-zinc-950/90">
       <div className="relative flex size-28 items-center justify-center">
         <svg viewBox="0 0 100 100" className="absolute inset-0 size-full -rotate-90">
           <circle

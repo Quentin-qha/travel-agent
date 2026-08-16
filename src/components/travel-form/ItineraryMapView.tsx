@@ -3,9 +3,10 @@
 import dynamic from "next/dynamic";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { format, parseISO } from "date-fns";
-import { Check, Clock, MapPin, Pencil, Share2, TriangleAlert, UtensilsCrossed, X } from "lucide-react";
+import { Check, Clock, ForkKnife, MapPin, Pencil, Share2, TriangleAlert, UtensilsCrossed, X } from "lucide-react";
 import { useDateFnsLocale, useLanguage } from "@/lib/i18n/LanguageProvider";
 import { translateTripType } from "@/lib/i18n/tripTypeLabels";
+import GenerationLoaderModal from "./GenerationLoaderModal";
 import {
   formatDestination,
   type ItineraryActivity,
@@ -95,7 +96,7 @@ export default function ItineraryMapView({ itineraryId, itinerary: initialItiner
   const { t, locale } = useLanguage();
   const dateLocale = useDateFnsLocale();
   const [itinerary, setItinerary] = useState(initialItinerary);
-  const [selectedDay, setSelectedDay] = useState<DaySelection>(itinerary.days[0]?.day_number ?? 1);
+  const [selectedDay, setSelectedDay] = useState<DaySelection>("all");
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const itemRefs = useRef(new Map<string, HTMLDivElement>());
   const dayRefs = useRef(new Map<number, HTMLDivElement>());
@@ -220,6 +221,7 @@ export default function ItineraryMapView({ itineraryId, itinerary: initialItiner
 
   return (
     <div className="flex h-svh flex-col lg:flex-row">
+      {isRegenerating && <GenerationLoaderModal />}
       <div
         ref={sidebarRef}
         className="order-2 flex w-full flex-col overflow-y-auto lg:order-1 lg:h-svh lg:w-[420px] lg:shrink-0 lg:border-r lg:border-zinc-200 dark:lg:border-zinc-800"
@@ -361,6 +363,7 @@ export default function ItineraryMapView({ itineraryId, itinerary: initialItiner
                           iconColor="text-violet-500"
                           place={activity}
                           detail={`${activity.duration_minutes} min`}
+                          detailIcon={Clock}
                           selected={selectedKey === cardKey}
                           onSelect={() => selectItem(cardKey, day.day_number)}
                           registerRef={(el) => {
@@ -383,6 +386,7 @@ export default function ItineraryMapView({ itineraryId, itinerary: initialItiner
                           iconColor="text-amber-500"
                           place={restaurant}
                           detail={restaurant.cuisine}
+                          detailIcon={ForkKnife}
                           selected={selectedKey === cardKey}
                           onSelect={() => selectItem(cardKey, day.day_number)}
                           registerRef={(el) => {
@@ -456,6 +460,7 @@ function SidebarCard({
   iconColor,
   place,
   detail,
+  detailIcon: DetailIcon,
   selected,
   onSelect,
   registerRef,
@@ -468,6 +473,7 @@ function SidebarCard({
   iconColor: string;
   place: ItineraryActivity | ItineraryRestaurant;
   detail: string;
+  detailIcon: typeof Clock;
   selected: boolean;
   onSelect: (key: string) => void;
   registerRef: (el: HTMLDivElement | null) => void;
@@ -508,7 +514,7 @@ function SidebarCard({
         </div>
         <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">{place.description}</p>
         <span className="mt-1.5 inline-flex items-center gap-1 text-xs text-zinc-400 dark:text-zinc-500">
-          <Clock className="size-3.5" />
+          <DetailIcon className="size-3.5" />
           {detail}
         </span>
       </div>
