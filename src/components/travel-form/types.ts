@@ -74,6 +74,7 @@ export interface ItinerarySummary {
   destination_city: string | null;
   destination_country: string;
   summary: string;
+  trip_types: string[];
   day_count: number;
   created_at: string;
 }

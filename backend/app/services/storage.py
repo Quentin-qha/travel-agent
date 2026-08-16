@@ -167,7 +167,7 @@ def list_itineraries() -> list[ItinerarySummary]:
     # avoids a second round trip per itinerary for a value we only need the length of.
     resp = (
         client.table("itinerary")
-        .select("id, destination_city, destination_country, summary, created_at, day_plan(day_number)")
+        .select("id, destination_city, destination_country, summary, trip_types, created_at, day_plan(day_number)")
         .order("created_at", desc=True)
         .execute()
     )
@@ -177,6 +177,7 @@ def list_itineraries() -> list[ItinerarySummary]:
             destination_city=row["destination_city"],
             destination_country=row["destination_country"],
             summary=row["summary"],
+            trip_types=row.get("trip_types") or [],
             day_count=len(row.get("day_plan") or []),
             created_at=row["created_at"],
         )

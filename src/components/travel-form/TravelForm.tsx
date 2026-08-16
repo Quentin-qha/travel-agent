@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { format } from "date-fns";
 import { Link2, PartyPopper, TriangleAlert } from "lucide-react";
 import StepBullets from "./StepBullets";
@@ -12,11 +13,13 @@ import TravelerPicker from "./TravelerPicker";
 import TripTypeSelect from "./TripTypeSelect";
 import SummaryStep from "./SummaryStep";
 import ItineraryResultView from "./ItineraryResultView";
+import GenerationLoaderModal from "./GenerationLoaderModal";
 import { INITIAL_FORM_DATA, isStepValid, STEPS, type ItineraryResult, type TravelFormData } from "./types";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
 export default function TravelForm() {
+  const router = useRouter();
   const [currentStep, setCurrentStep] = useState(1);
   const [maxStepReached, setMaxStepReached] = useState(1);
   const [data, setData] = useState<TravelFormData>(INITIAL_FORM_DATA);
@@ -67,11 +70,18 @@ export default function TravelForm() {
         }
 
         const result: ItineraryResult = await response.json();
+
+        if (result.id) {
+          // Keep the loader visible until the new page takes over.
+          router.push(`/${result.id}`);
+          return;
+        }
+
         setItinerary(result);
         setIsGenerated(true);
+        setIsGenerating(false);
       } catch (err) {
         setError(err instanceof Error ? err.message : "Une erreur est survenue.");
-      } finally {
         setIsGenerating(false);
       }
       return;
@@ -93,6 +103,8 @@ export default function TravelForm() {
 
   return (
     <div className="w-full">
+      {isGenerating && <GenerationLoaderModal />}
+
       {!isGenerated && (
         <div className="mb-6">
           <StepBullets currentStep={currentStep} maxStepReached={maxStepReached} onStepClick={goToStep} />
