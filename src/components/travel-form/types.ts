@@ -58,6 +58,9 @@ export interface ItineraryResult {
   summary: string;
   trip_types: string[];
   days: ItineraryDay[];
+  // Only present right after creation — the creator's browser stores it in a
+  // cookie and never receives it again.
+  edit_token?: string | null;
 }
 
 export interface ItineraryViewData {
@@ -67,6 +70,8 @@ export interface ItineraryViewData {
   summary: string;
   trip_types: string[];
   days: ItineraryDay[];
+  // Whether the viewer holds a valid edit token for this itinerary.
+  can_edit: boolean;
 }
 
 export interface ItinerarySummary {

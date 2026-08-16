@@ -15,6 +15,7 @@ import SummaryStep from "./SummaryStep";
 import ItineraryResultView from "./ItineraryResultView";
 import GenerationLoaderModal from "./GenerationLoaderModal";
 import { useLanguage } from "@/lib/i18n/LanguageProvider";
+import { setEditTokenCookie } from "@/lib/editToken";
 import { INITIAL_FORM_DATA, isStepValid, STEPS, type ItineraryResult, type TravelFormData } from "./types";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
@@ -74,6 +75,9 @@ export default function TravelForm() {
         const result: ItineraryResult = await response.json();
 
         if (result.id) {
+          if (result.edit_token) {
+            setEditTokenCookie(result.id, result.edit_token);
+          }
           // Keep the loader visible until the new page takes over.
           router.push(`/${result.id}`);
           return;
@@ -134,7 +138,7 @@ export default function TravelForm() {
               )}
             </div>
 
-            <ItineraryResultView itinerary={itinerary} />
+            <ItineraryResultView itinerary={{ ...itinerary, can_edit: true }} />
 
             <div className="mt-6 flex justify-center border-t border-zinc-100 pt-5 dark:border-zinc-800">
               <button

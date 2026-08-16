@@ -96,6 +96,9 @@ class ItineraryCreateResponse(ItineraryResponse):
     # Echoed back from the request (Claude never sees/produces this) so the
     # frontend can display the chosen ambiances without a second round trip.
     trip_types: list[str] = Field(default_factory=list)
+    # Only ever sent once, right after creation — the frontend stores it in a
+    # cookie and never sees it again (GET/regenerate return can_edit instead).
+    edit_token: str | None = None
 
 
 class ItineraryDetail(BaseModel):
@@ -109,6 +112,9 @@ class ItineraryDetail(BaseModel):
     summary: str
     trip_types: list[str] = Field(default_factory=list)
     days: list[DayPlan]
+    # Whether the requester's edit_token matched this itinerary's — never the
+    # raw token itself, so a shared link can't leak edit rights.
+    can_edit: bool = False
 
 
 class ItinerarySummary(BaseModel):

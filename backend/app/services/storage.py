@@ -1,4 +1,5 @@
 import logging
+import secrets
 
 from supabase import Client, create_client
 
@@ -150,7 +151,11 @@ def _insert_days(itinerary_id: str, days: list[DayPlan], translated_days: list[D
 
 def save_itinerary(
     request: ItineraryRequest, itinerary: ItineraryResponse, translated: TranslatedItinerary | None = None
-) -> str:
+) -> tuple[str, str]:
+    """Returns (itinerary_id, edit_token). The token is only ever handed to the
+    creator (stored client-side in a cookie) — it's what lets us tell an owner
+    apart from anyone else opening a shared link."""
+    edit_token = secrets.token_urlsafe(24)
     itinerary_row = (
         client.table("itinerary")
         .insert(
@@ -160,6 +165,7 @@ def save_itinerary(
                 "traveler_count": request.traveler_count,
                 "city_lat": request.city.lat,
                 "city_lon": request.city.lon,
+                "edit_token": edit_token,
             }
         )
         .execute()
@@ -188,10 +194,21 @@ def save_itinerary(
     client.table("itinerary_translations").insert(translation_rows).execute()
 
     _insert_days(itinerary_id, itinerary.days, translated.days if translated else None)
-    return itinerary_id
+    return itinerary_id, edit_token
 
 
-def get_itinerary(itinerary_id: str, locale: str = DEFAULT_LOCALE) -> ItineraryDetail | None:
+def check_edit_token(itinerary_id: str, edit_token: str | None) -> bool:
+    if not edit_token:
+        return False
+    resp = client.table("itinerary").select("edit_token").eq("id", itinerary_id).execute()
+    if not resp.data:
+        return False
+    return secrets.compare_digest(edit_token, resp.data[0]["edit_token"])
+
+
+def get_itinerary(
+    itinerary_id: str, locale: str = DEFAULT_LOCALE, edit_token: str | None = None
+) -> ItineraryDetail | None:
     itinerary_resp = (
         client.table("itinerary").select("*, itinerary_translations(*)").eq("id", itinerary_id).execute()
     )
@@ -243,6 +260,7 @@ def get_itinerary(itinerary_id: str, locale: str = DEFAULT_LOCALE) -> ItineraryD
         summary=itinerary_text.get("summary") or "",
         trip_types=itinerary_row.get("trip_types") or [],
         days=days,
+        can_edit=bool(edit_token) and secrets.compare_digest(edit_token, itinerary_row["edit_token"]),
     )
 
 

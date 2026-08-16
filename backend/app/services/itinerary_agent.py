@@ -24,6 +24,7 @@ from app.schemas.itinerary import (
     TranslatedItinerary,
 )
 from app.services.storage import (
+    check_edit_token,
     get_day_plan_ids,
     get_itinerary,
     get_itinerary_context,
@@ -387,17 +388,21 @@ def generate_itinerary(request: ItineraryRequest, lang: str = "fr") -> Itinerary
     translated = _translate_to_english(itinerary)
 
     itinerary_id: str | None = None
+    edit_token: str | None = None
     try:
-        itinerary_id = save_itinerary(request, itinerary, translated)
+        itinerary_id, edit_token = save_itinerary(request, itinerary, translated)
     except Exception:
         # Persistence is a side effect — don't fail the request over it.
         logger.exception("Failed to save itinerary to Supabase")
 
     if itinerary_id is not None:
-        detail = get_itinerary(itinerary_id, locale=lang)
+        detail = get_itinerary(itinerary_id, locale=lang, edit_token=edit_token)
         assert detail is not None  # we just saved it
         return ItineraryCreateResponse(
-            **detail.model_dump(exclude={"id", "trip_types"}), id=itinerary_id, trip_types=request.trip_types
+            **detail.model_dump(exclude={"id", "trip_types", "can_edit"}),
+            id=itinerary_id,
+            trip_types=request.trip_types,
+            edit_token=edit_token,
         )
 
     localized = _apply_translation(itinerary, translated, lang)
@@ -420,7 +425,9 @@ def _context_to_request(context: ItineraryContext) -> ItineraryRequest:
     )
 
 
-def _regenerate_full(itinerary_id: str, context: ItineraryContext, lang: str = "fr") -> ItineraryDetail:
+def _regenerate_full(
+    itinerary_id: str, context: ItineraryContext, lang: str = "fr", edit_token: str | None = None
+) -> ItineraryDetail:
     request = _context_to_request(context)
     messages: list[dict] = [{"role": "user", "content": _build_prompt(request)}]
     response = _run_to_completion(messages)
@@ -432,7 +439,7 @@ def _regenerate_full(itinerary_id: str, context: ItineraryContext, lang: str = "
 
     replace_days(itinerary_id, itinerary, translated)
 
-    updated = get_itinerary(itinerary_id, locale=lang)
+    updated = get_itinerary(itinerary_id, locale=lang, edit_token=edit_token)
     if updated is None:
         raise RuntimeError("Itinéraire introuvable après régénération.")
     return updated
@@ -468,7 +475,11 @@ def _merge_by_index(original: list, replaced_indices: set[int], new_items: list)
 
 
 def _regenerate_partial(
-    itinerary_id: str, context: ItineraryContext, item_keys: list[str], lang: str = "fr"
+    itinerary_id: str,
+    context: ItineraryContext,
+    item_keys: list[str],
+    lang: str = "fr",
+    edit_token: str | None = None,
 ) -> ItineraryDetail:
     # Kept items' French text drives the regeneration prompt (see module note on
     # get_itinerary_context); their English text (if any) is carried over as-is into
@@ -542,13 +553,18 @@ def _regenerate_partial(
         if day_plan_id:
             replace_day_items(day_plan_id, final_activities, final_restaurants, final_day_en)
 
-    updated = get_itinerary(itinerary_id, locale=lang)
+    updated = get_itinerary(itinerary_id, locale=lang, edit_token=edit_token)
     if updated is None:
         raise RuntimeError("Itinéraire introuvable après régénération.")
     return updated
 
 
-def regenerate_itinerary(itinerary_id: str, item_keys: list[str], lang: str = "fr") -> ItineraryDetail:
+def regenerate_itinerary(
+    itinerary_id: str, item_keys: list[str], lang: str = "fr", edit_token: str | None = None
+) -> ItineraryDetail:
+    if not check_edit_token(itinerary_id, edit_token):
+        raise PermissionError("Jeton d'édition invalide ou manquant.")
+
     context = get_itinerary_context(itinerary_id)
     if context is None:
         raise ValueError("Itinéraire introuvable.")
@@ -559,5 +575,5 @@ def regenerate_itinerary(itinerary_id: str, item_keys: list[str], lang: str = "f
 
     total_items = sum(len(day.activities) + len(day.restaurants) for day in current.days)
     if len(set(item_keys)) >= total_items:
-        return _regenerate_full(itinerary_id, context, lang)
-    return _regenerate_partial(itinerary_id, context, item_keys, lang)
+        return _regenerate_full(itinerary_id, context, lang, edit_token)
+    return _regenerate_partial(itinerary_id, context, item_keys, lang, edit_token)

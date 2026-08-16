@@ -6,6 +6,7 @@ import { format, parseISO } from "date-fns";
 import { Check, Clock, ForkKnife, MapPin, Pencil, Share2, TriangleAlert, UtensilsCrossed, X } from "lucide-react";
 import { useDateFnsLocale, useLanguage } from "@/lib/i18n/LanguageProvider";
 import { translateTripType } from "@/lib/i18n/tripTypeLabels";
+import { getEditTokenCookie } from "@/lib/editToken";
 import GenerationLoaderModal from "./GenerationLoaderModal";
 import {
   formatDestination,
@@ -196,9 +197,13 @@ export default function ItineraryMapView({ itineraryId, itinerary: initialItiner
     setRegenError(null);
 
     try {
+      const editToken = getEditTokenCookie(itineraryId);
       const response = await fetch(`${API_URL}/api/itinerary/${itineraryId}/regenerate?lang=${locale}`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...(editToken ? { "X-Edit-Token": editToken } : {}),
+        },
         body: JSON.stringify({ itemKeys: Array.from(selectedForRegen) }),
       });
 
@@ -273,14 +278,16 @@ export default function ItineraryMapView({ itineraryId, itinerary: initialItiner
                 >
                   <Share2 className="size-4" />
                 </button>
-                <button
-                  type="button"
-                  onClick={handleStartEdit}
-                  title={t("itineraryMap.editTrip")}
-                  className="flex size-8 items-center justify-center rounded-full text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
-                >
-                  <Pencil className="size-4" />
-                </button>
+                {itinerary.can_edit && (
+                  <button
+                    type="button"
+                    onClick={handleStartEdit}
+                    title={t("itineraryMap.editTrip")}
+                    className="flex size-8 items-center justify-center rounded-full text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
+                  >
+                    <Pencil className="size-4" />
+                  </button>
+                )}
               </div>
             )}
           </div>
