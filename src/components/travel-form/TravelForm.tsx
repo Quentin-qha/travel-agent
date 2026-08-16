@@ -1,8 +1,9 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { format } from "date-fns";
-import { PartyPopper, TriangleAlert } from "lucide-react";
+import { Link2, PartyPopper, TriangleAlert } from "lucide-react";
 import StepBullets from "./StepBullets";
 import StepFooter from "./StepFooter";
 import CityAutocomplete from "./CityAutocomplete";
@@ -106,9 +107,26 @@ export default function TravelForm() {
                 <PartyPopper className="size-6 text-white" />
               </div>
               <h2 className="text-xl font-semibold text-zinc-900 dark:text-zinc-100">Ton voyage est prêt !</h2>
+              {itinerary.id && (
+                <Link
+                  href={`/${itinerary.id}`}
+                  className="inline-flex items-center gap-1.5 rounded-full bg-violet-50 px-3 py-1.5 text-xs font-medium text-violet-700 transition hover:bg-violet-100 dark:bg-violet-500/10 dark:text-violet-300 dark:hover:bg-violet-500/20"
+                >
+                  <Link2 className="size-3.5" />
+                  Lien permanent vers ce voyage
+                </Link>
+              )}
             </div>
 
-            <ItineraryResultView itinerary={itinerary} />
+            <ItineraryResultView
+              itinerary={{
+                destination: itinerary.destination_city
+                  ? `${itinerary.destination_city}, ${itinerary.destination_country}`
+                  : itinerary.destination_country,
+                summary: itinerary.summary,
+                days: itinerary.days,
+              }}
+            />
 
             <div className="mt-6 flex justify-center border-t border-zinc-100 pt-5 dark:border-zinc-800">
               <button
