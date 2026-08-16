@@ -21,6 +21,43 @@ export interface TravelFormData {
   tripTypes: string[];
 }
 
+export interface ItineraryActivity {
+  name: string;
+  location_query: string;
+  description: string;
+  category: string;
+  duration_minutes: number;
+  budget_level: string;
+  source_url: string;
+  lat: number | null;
+  lon: number | null;
+}
+
+export interface ItineraryRestaurant {
+  name: string;
+  location_query: string;
+  description: string;
+  cuisine: string;
+  budget_level: string;
+  source_url: string;
+  lat: number | null;
+  lon: number | null;
+}
+
+export interface ItineraryDay {
+  day_number: number;
+  date: string;
+  activities: ItineraryActivity[];
+  restaurants: ItineraryRestaurant[];
+}
+
+export interface ItineraryResult {
+  destination_city: string | null;
+  destination_country: string;
+  summary: string;
+  days: ItineraryDay[];
+}
+
 export const TRAVELER_TYPES: { id: TravelerType; label: string; defaultCount: number }[] = [
   { id: "solo", label: "Solo", defaultCount: 1 },
   { id: "couple", label: "Couple", defaultCount: 2 },
