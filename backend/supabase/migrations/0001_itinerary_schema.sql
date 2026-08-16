@@ -16,6 +16,10 @@ create table if not exists itinerary (
     -- Ambiances picked in the form (e.g. 'Culture', 'Nature') — echoed back for
     -- display, not read from Claude's response.
     trip_types text[] not null default '{}',
+    -- Nullable: rows saved before regeneration existed may not have these.
+    -- Needed to rebuild the original request when regenerating the trip.
+    traveler_type text,
+    traveler_count integer,
     city_lat double precision not null,
     city_lon double precision not null
 );
