@@ -22,10 +22,8 @@ export default function LibraryCard({ itinerary }: { itinerary: ItinerarySummary
         </span>
       </div>
 
-      <p className="line-clamp-3 flex-1 text-sm text-zinc-600 dark:text-zinc-300">{itinerary.summary}</p>
-
-      {itinerary.trip_types.length > 0 && (
-        <div className="mt-3 flex flex-wrap gap-1.5">
+      {/* {itinerary.trip_types.length > 0 && (
+        <div className=" flex flex-wrap gap-1.5">
           {itinerary.trip_types.map((type) => (
             <span
               key={type}
@@ -35,7 +33,12 @@ export default function LibraryCard({ itinerary }: { itinerary: ItinerarySummary
             </span>
           ))}
         </div>
-      )}
+      )} */}
+
+      <div className="flex-1">
+        <p className="line-clamp-3 text-sm text-zinc-600 dark:text-zinc-300">{itinerary.summary}</p>
+      </div>
+
 
       <div className="mt-4 inline-flex items-center gap-1 text-sm font-medium text-violet-600 group-hover:underline dark:text-violet-400">
         Voir le voyage

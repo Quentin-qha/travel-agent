@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { Clock } from "lucide-react";
 import DayRangeSlider from "./DayRangeSlider";
 
@@ -11,19 +12,39 @@ interface DayRangeDropdownProps {
   onChange: (value: [number, number]) => void;
 }
 
+const PANEL_WIDTH = 256; // matches w-64
+
 export default function DayRangeDropdown({ min, max, value, onChange }: DayRangeDropdownProps) {
   const [isOpen, setIsOpen] = useState(false);
-  const containerRef = useRef<HTMLDivElement>(null);
+  const [position, setPosition] = useState<{ top: number; left: number } | null>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    function handleClickOutside(event: MouseEvent) {
-      if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
-        setIsOpen(false);
-      }
+    if (!isOpen) return;
+
+    function updatePosition() {
+      const rect = triggerRef.current?.getBoundingClientRect();
+      if (!rect) return;
+      setPosition({ top: rect.bottom + 8, left: rect.right - PANEL_WIDTH });
     }
+
+    function handleClickOutside(event: MouseEvent) {
+      const target = event.target as Node;
+      if (triggerRef.current?.contains(target) || panelRef.current?.contains(target)) return;
+      setIsOpen(false);
+    }
+
+    updatePosition();
+    window.addEventListener("scroll", updatePosition, true);
+    window.addEventListener("resize", updatePosition);
     document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, []);
+    return () => {
+      window.removeEventListener("scroll", updatePosition, true);
+      window.removeEventListener("resize", updatePosition);
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, [isOpen]);
 
   if (min >= max) return null;
 
@@ -32,8 +53,9 @@ export default function DayRangeDropdown({ min, max, value, onChange }: DayRange
   const label = !isFiltered ? "Durée" : lo === hi ? `${lo} jour${lo > 1 ? "s" : ""}` : `${lo}–${hi} jours`;
 
   return (
-    <div ref={containerRef} className="relative shrink-0">
+    <div className="relative shrink-0">
       <button
+        ref={triggerRef}
         type="button"
         onClick={() => setIsOpen((prev) => !prev)}
         className={`flex h-full w-full min-w-[8.5rem] items-center gap-2.5 rounded-2xl border bg-white px-4 py-2.5 text-left text-sm outline-none transition sm:w-auto dark:bg-zinc-900 ${
@@ -50,21 +72,28 @@ export default function DayRangeDropdown({ min, max, value, onChange }: DayRange
         </span>
       </button>
 
-      {isOpen && (
-        <div className="absolute z-30 mt-2 w-64 rounded-2xl border border-zinc-200 bg-white p-4 shadow-xl shadow-black/5 dark:border-zinc-700 dark:bg-zinc-900">
-          <DayRangeSlider min={min} max={max} value={value} onChange={onChange} />
+      {isOpen &&
+        position &&
+        createPortal(
+          <div
+            ref={panelRef}
+            style={{ top: position.top, left: position.left, width: PANEL_WIDTH }}
+            className="fixed z-50 rounded-2xl border border-zinc-200 bg-white p-4 shadow-xl shadow-black/5 dark:border-zinc-700 dark:bg-zinc-900"
+          >
+            <DayRangeSlider min={min} max={max} value={value} onChange={onChange} />
 
-          {isFiltered && (
-            <button
-              type="button"
-              onClick={() => onChange([min, max])}
-              className="mt-3 text-xs font-medium text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200"
-            >
-              Réinitialiser
-            </button>
-          )}
-        </div>
-      )}
+            {isFiltered && (
+              <button
+                type="button"
+                onClick={() => onChange([min, max])}
+                className="mt-3 text-xs font-medium text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200"
+              >
+                Réinitialiser
+              </button>
+            )}
+          </div>,
+          document.body,
+        )}
     </div>
   );
 }
