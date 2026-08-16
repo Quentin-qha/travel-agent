@@ -49,6 +49,9 @@ def _build_prompt(request: ItineraryRequest) -> str:
         "(lieux ouverts aux dates données ci-dessus, avis récents, adaptés à la période et au "
         "profil de voyageurs).\n\n"
         "RÈGLES :\n"
+        "- destination_city et destination_country sont tous les deux obligatoires et ne "
+        "doivent jamais être vides : destination_city est le nom court de la ville demandée "
+        "(ex. 'Paris'), sans le pays ; destination_country est le nom du pays (ex. 'France').\n"
         "- Pour chaque activité, estime une durée réaliste en minutes (duration_minutes) — "
         "trajets compris si pertinent.\n"
         "- Regroupe les activités et restaurants d'une même journée par proximité géographique, "
@@ -190,4 +193,4 @@ def generate_itinerary(request: ItineraryRequest) -> ItineraryCreateResponse:
         # Persistence is a side effect — don't fail the request over it.
         logger.exception("Failed to save itinerary to Supabase")
 
-    return ItineraryCreateResponse(**itinerary.model_dump(), id=itinerary_id)
+    return ItineraryCreateResponse(**itinerary.model_dump(), id=itinerary_id, trip_types=request.trip_types)

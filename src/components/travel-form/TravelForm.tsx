@@ -118,15 +118,7 @@ export default function TravelForm() {
               )}
             </div>
 
-            <ItineraryResultView
-              itinerary={{
-                destination: itinerary.destination_city
-                  ? `${itinerary.destination_city}, ${itinerary.destination_country}`
-                  : itinerary.destination_country,
-                summary: itinerary.summary,
-                days: itinerary.days,
-              }}
-            />
+            <ItineraryResultView itinerary={itinerary} />
 
             <div className="mt-6 flex justify-center border-t border-zinc-100 pt-5 dark:border-zinc-800">
               <button

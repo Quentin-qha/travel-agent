@@ -1,8 +1,8 @@
 from fastapi import APIRouter, HTTPException
 
-from app.schemas.itinerary import ItineraryCreateResponse, ItineraryDetail, ItineraryRequest
+from app.schemas.itinerary import ItineraryCreateResponse, ItineraryDetail, ItineraryRequest, ItinerarySummary
 from app.services.itinerary_agent import generate_itinerary
-from app.services.storage import get_itinerary
+from app.services.storage import get_itinerary, list_itineraries
 
 router = APIRouter()
 
@@ -13,6 +13,11 @@ def create_itinerary(request: ItineraryRequest) -> ItineraryCreateResponse:
         return generate_itinerary(request)
     except Exception as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@router.get("/itinerary", response_model=list[ItinerarySummary])
+def list_itineraries_route() -> list[ItinerarySummary]:
+    return list_itineraries()
 
 
 @router.get("/itinerary/{itinerary_id}", response_model=ItineraryDetail)

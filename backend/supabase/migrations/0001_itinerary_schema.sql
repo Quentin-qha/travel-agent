@@ -9,8 +9,13 @@ create table if not exists itinerary (
     id uuid primary key default gen_random_uuid(),
     created_at timestamptz not null default now(),
 
-    destination_name text not null,
+    -- Nullable: rows saved before this field existed may not have it.
+    destination_city text,
+    destination_country text not null,
     summary text not null,
+    -- Ambiances picked in the form (e.g. 'Culture', 'Nature') — echoed back for
+    -- display, not read from Claude's response.
+    trip_types text[] not null default '{}',
     city_lat double precision not null,
     city_lon double precision not null
 );

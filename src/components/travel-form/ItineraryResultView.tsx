@@ -1,7 +1,7 @@
 import { format, parseISO } from "date-fns";
 import { fr } from "date-fns/locale";
 import { Clock, ExternalLink, MapPin, UtensilsCrossed } from "lucide-react";
-import type { ItineraryActivity, ItineraryRestaurant, ItineraryViewData } from "./types";
+import { formatDestination, type ItineraryActivity, type ItineraryRestaurant, type ItineraryViewData } from "./types";
 
 interface ItineraryResultViewProps {
   itinerary: ItineraryViewData;
@@ -11,7 +11,21 @@ export default function ItineraryResultView({ itinerary }: ItineraryResultViewPr
   return (
     <div className="space-y-6">
       <div className="text-center">
-        <p className="text-sm font-semibold text-violet-600 dark:text-violet-400">{itinerary.destination}</p>
+        <p className="text-sm font-semibold text-violet-600 dark:text-violet-400">
+          {formatDestination(itinerary.destination_city, itinerary.destination_country)}
+        </p>
+        {itinerary.trip_types.length > 0 && (
+          <div className="mt-2 flex flex-wrap justify-center gap-1.5">
+            {itinerary.trip_types.map((tripType) => (
+              <span
+                key={tripType}
+                className="rounded-full bg-violet-100 px-2.5 py-0.5 text-xs font-semibold text-violet-700 dark:bg-violet-500/15 dark:text-violet-300"
+              >
+                {tripType}
+              </span>
+            ))}
+          </div>
+        )}
         <p className="mx-auto mt-1.5 max-w-lg text-sm text-zinc-600 dark:text-zinc-300">{itinerary.summary}</p>
       </div>
 

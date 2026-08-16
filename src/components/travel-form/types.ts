@@ -53,16 +53,33 @@ export interface ItineraryDay {
 
 export interface ItineraryResult {
   id: string | null;
-  destination_city: string | null;
+  destination_city: string;
   destination_country: string;
   summary: string;
+  trip_types: string[];
   days: ItineraryDay[];
 }
 
 export interface ItineraryViewData {
-  destination: string;
+  // Nullable: itineraries saved before destination_city was required may not have it.
+  destination_city: string | null;
+  destination_country: string;
   summary: string;
+  trip_types: string[];
   days: ItineraryDay[];
+}
+
+export interface ItinerarySummary {
+  id: string;
+  destination_city: string | null;
+  destination_country: string;
+  summary: string;
+  day_count: number;
+  created_at: string;
+}
+
+export function formatDestination(city: string | null, country: string): string {
+  return city ? `${city}, ${country}` : country;
 }
 
 export const TRAVELER_TYPES: { id: TravelerType; label: string; defaultCount: number }[] = [

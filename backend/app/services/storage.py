@@ -3,7 +3,15 @@ import logging
 from supabase import Client, create_client
 
 from app.core.config import settings
-from app.schemas.itinerary import Activity, DayPlan, ItineraryDetail, ItineraryRequest, ItineraryResponse, Restaurant
+from app.schemas.itinerary import (
+    Activity,
+    DayPlan,
+    ItineraryDetail,
+    ItineraryRequest,
+    ItineraryResponse,
+    ItinerarySummary,
+    Restaurant,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -11,16 +19,14 @@ client: Client = create_client(settings.supabase_url, settings.supabase_service_
 
 
 def save_itinerary(request: ItineraryRequest, itinerary: ItineraryResponse) -> str:
-    destination_name = itinerary.destination_country
-    if itinerary.destination_city:
-        destination_name = f"{itinerary.destination_city}, {itinerary.destination_country}"
-
     itinerary_row = (
         client.table("itinerary")
         .insert(
             {
-                "destination_name": destination_name,
+                "destination_city": itinerary.destination_city,
+                "destination_country": itinerary.destination_country,
                 "summary": itinerary.summary,
+                "trip_types": request.trip_types,
                 "city_lat": request.city.lat,
                 "city_lon": request.city.lon,
             }
@@ -140,7 +146,31 @@ def get_itinerary(itinerary_id: str) -> ItineraryDetail | None:
 
     return ItineraryDetail(
         id=itinerary_row["id"],
-        destination=itinerary_row["destination_name"],
+        destination_city=itinerary_row["destination_city"],
+        destination_country=itinerary_row["destination_country"],
         summary=itinerary_row["summary"],
+        trip_types=itinerary_row.get("trip_types") or [],
         days=days,
     )
+
+
+def list_itineraries() -> list[ItinerarySummary]:
+    # day_plan(day_number) embeds each itinerary's day rows just to count them —
+    # avoids a second round trip per itinerary for a value we only need the length of.
+    resp = (
+        client.table("itinerary")
+        .select("id, destination_city, destination_country, summary, created_at, day_plan(day_number)")
+        .order("created_at", desc=True)
+        .execute()
+    )
+    return [
+        ItinerarySummary(
+            id=row["id"],
+            destination_city=row["destination_city"],
+            destination_country=row["destination_country"],
+            summary=row["summary"],
+            day_count=len(row.get("day_plan") or []),
+            created_at=row["created_at"],
+        )
+        for row in resp.data
+    ]
