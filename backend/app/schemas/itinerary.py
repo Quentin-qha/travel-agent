@@ -120,6 +120,7 @@ class ItinerarySummary(BaseModel):
     destination_city: str | None = None
     destination_country: str
     summary: str
+    trip_types: list[str] = Field(default_factory=list)
     day_count: int
     created_at: str
 
