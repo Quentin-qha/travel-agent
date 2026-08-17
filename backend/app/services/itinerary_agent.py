@@ -2,6 +2,7 @@ import json
 import logging
 import time
 from datetime import date, timedelta
+from math import asin, cos, radians, sin, sqrt
 
 import httpx
 from anthropic import Anthropic
@@ -38,6 +39,14 @@ logger = logging.getLogger(__name__)
 client = Anthropic(api_key=settings.anthropic_api_key)
 
 GOOGLE_GEOCODING_URL = "https://maps.googleapis.com/maps/api/geocode/json"
+GOOGLE_FIND_PLACE_URL = "https://maps.googleapis.com/maps/api/place/findplacefromtext/json"
+GOOGLE_PLACE_DETAILS_URL = "https://maps.googleapis.com/maps/api/place/details/json"
+GOOGLE_PLACE_PHOTO_URL = "https://maps.googleapis.com/maps/api/place/photo"
+
+# Enforced after geocoding (not just requested in the prompt) — the model's web
+# search sometimes surfaces a reputable but distant excursion/landmark, so this
+# is a hard backstop rather than a suggestion it can quietly ignore.
+MAX_PLACE_DISTANCE_KM = 10.0
 
 RESPONSE_SCHEMA = ItineraryResponse.model_json_schema()
 DAY_ITEMS_RESPONSE_SCHEMA = DayItemsResponse.model_json_schema()
@@ -86,6 +95,10 @@ def _build_prompt(request: ItineraryRequest) -> str:
         "- Regroupe les activités et restaurants d'une même journée par proximité géographique, "
         "pour minimiser les déplacements : un jour = une zone cohérente de la ville, pas des "
         "lieux dispersés aux quatre coins.\n"
+        f"- Toutes les activités et tous les restaurants doivent se trouver à moins de "
+        f"{MAX_PLACE_DISTANCE_KM:g} km du centre de {request.city.name} — n'inclus rien de plus "
+        "éloigné, même une excursion ou un site réputé, sauf si le voyageur l'a explicitement "
+        "demandé dans les ambiances recherchées.\n"
         "- Pour chaque jour, propose aussi 1 à 2 restaurants (déjeuner et/ou dîner) proches des "
         "activités de ce jour précis, ouverts, adaptés au profil et aux ambiances recherchées — "
         "les meilleures options disponibles dans le contexte, pas des choix génériques.\n"
@@ -97,7 +110,8 @@ def _build_prompt(request: ItineraryRequest) -> str:
         "- Renseigne location_query : le nom court et exact du lieu tel qu'il apparaîtrait sur "
         "une carte (ex. 'Torre de Belém'), sans phrase descriptive ni plusieurs lieux combinés "
         "— sert uniquement au géocodage, distinct de 'name' qui peut rester descriptif.\n"
-        "- Laisse lat/lon à null — ils sont calculés séparément après coup.\n"
+        "- Laisse lat/lon et image_url à null, pour l'itinéraire comme pour chaque activité et "
+        "chaque restaurant — ils sont calculés séparément après coup.\n"
         "- Répartis TOUTES les activités sur l'ensemble des jours du voyage listés ci-dessus : "
         "un planning réaliste par jour, sans journée vide ni surchargée (vise environ 4 à 8 "
         "heures d'activités par jour, hors repas).\n"
@@ -139,6 +153,8 @@ def _build_partial_prompt(
         "extrait anglais tel quel.\n"
         "- Cohérence géographique avec les éléments conservés : reste dans la même zone/quartier autant "
         "que possible, pour minimiser les déplacements.\n"
+        f"- Les nouveautés doivent se trouver à moins de {MAX_PLACE_DISTANCE_KM:g} km du centre de "
+        f"{city_label} — n'inclus rien de plus éloigné.\n"
         "- Faisabilité temporelle : le temps total de la journée (éléments conservés + nouveaux) doit "
         "rester réaliste (environ 4 à 8 heures d'activités, hors repas) — ne surcharge pas la journée.\n"
         "- N'invente rien de similaire ou redondant avec les éléments conservés.\n"
@@ -148,7 +164,7 @@ def _build_partial_prompt(
         "- source_url doit être l'URL exacte d'un résultat de recherche web réellement consulté — jamais "
         "inventée. N'inclus un élément que si tu as une source réelle à citer.\n"
         "- location_query : nom court et exact du lieu pour le géocodage, distinct de 'name'.\n"
-        "- Laisse lat/lon à null.\n\n"
+        "- Laisse lat/lon et image_url à null.\n\n"
         "Réponds uniquement selon le schéma fourni."
     )
 
@@ -205,7 +221,7 @@ def _run_to_completion(messages: list[dict], schema: dict = RESPONSE_SCHEMA, use
     return response
 
 
-def _geocode_once(query: str) -> tuple[float, float] | None:
+def _geocode_once(query: str) -> tuple[float, float, str | None] | None:
     try:
         resp = httpx.get(
             GOOGLE_GEOCODING_URL,
@@ -226,14 +242,15 @@ def _geocode_once(query: str) -> tuple[float, float] | None:
         )
         return None
     try:
-        location = data["results"][0]["geometry"]["location"]
-        return float(location["lat"]), float(location["lng"])
+        result = data["results"][0]
+        location = result["geometry"]["location"]
+        return float(location["lat"]), float(location["lng"]), result.get("place_id")
     except (KeyError, ValueError, TypeError) as exc:
         logger.warning("Unexpected geocoding response shape for %r: %s", query, exc)
         return None
 
 
-def _geocode(query: str, retries: int = 1) -> tuple[float, float] | None:
+def _geocode(query: str, retries: int = 1) -> tuple[float, float, str | None] | None:
     # Google API key restriction changes can take a few minutes to fully
     # propagate, causing sporadic REQUEST_DENIED on an otherwise-working key.
     # A short retry absorbs that kind of transient failure.
@@ -246,18 +263,119 @@ def _geocode(query: str, retries: int = 1) -> tuple[float, float] | None:
     return None
 
 
+def _find_place(query: str) -> tuple[float, float, str | None] | None:
+    """Places 'Find Place From Text' — matches a named venue (restaurant, landmark)
+    by name, unlike the Geocoding API which is built for parsing addresses. For a
+    restaurant name that isn't a clean postal address, Geocoding often resolves to
+    the wrong nearby place_id, which then pulls the wrong establishment's photo."""
+    try:
+        resp = httpx.get(
+            GOOGLE_FIND_PLACE_URL,
+            params={
+                "input": query,
+                "inputtype": "textquery",
+                "fields": "place_id,geometry",
+                "key": settings.google_location_api_key,
+            },
+            timeout=10,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+    except (httpx.HTTPError, ValueError) as exc:
+        logger.warning("Find place request failed for %r: %s", query, exc)
+        return None
+    if data.get("status") != "OK":
+        return None
+    candidates = data.get("candidates") or []
+    if not candidates:
+        return None
+    try:
+        location = candidates[0]["geometry"]["location"]
+        return float(location["lat"]), float(location["lng"]), candidates[0].get("place_id")
+    except (KeyError, ValueError, TypeError) as exc:
+        logger.warning("Unexpected find place response shape for %r: %s", query, exc)
+        return None
+
+
+def _fetch_place_photo_url(place_id: str) -> str | None:
+    """First Google Places photo for a place_id already resolved via geocoding —
+    no separate Places text search needed, just one Place Details lookup."""
+    try:
+        resp = httpx.get(
+            GOOGLE_PLACE_DETAILS_URL,
+            params={"place_id": place_id, "fields": "photos", "key": settings.google_location_api_key},
+            timeout=10,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+    except (httpx.HTTPError, ValueError) as exc:
+        logger.warning("Place details request failed for %r: %s", place_id, exc)
+        return None
+    if data.get("status") != "OK":
+        logger.warning("Place details failed for %r: status=%s", place_id, data.get("status"))
+        return None
+    photos = data.get("result", {}).get("photos") or []
+    photo_reference = photos[0].get("photo_reference") if photos else None
+    if not photo_reference:
+        return None
+    return (
+        f"{GOOGLE_PLACE_PHOTO_URL}?maxwidth=800&photo_reference={photo_reference}"
+        f"&key={settings.google_location_api_key}"
+    )
+
+
 def _geocode_place(destination: str, place: Activity | Restaurant) -> None:
-    coords = _geocode(f"{place.location_query}, {destination}")
-    if coords is not None:
-        place.lat, place.lon = coords
+    result = _find_place(f"{place.name}, {destination}") or _geocode(f"{place.location_query}, {destination}")
+    if result is None:
+        return
+    place.lat, place.lon, place_id = result
+    if place_id:
+        place.image_url = _fetch_place_photo_url(place_id)
 
 
-def _geocode_itinerary(destination: str, itinerary: ItineraryResponse) -> None:
+def _haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    earth_radius_km = 6371.0
+    p1, p2 = radians(lat1), radians(lat2)
+    dphi = radians(lat2 - lat1)
+    dlambda = radians(lon2 - lon1)
+    a = sin(dphi / 2) ** 2 + cos(p1) * cos(p2) * sin(dlambda / 2) ** 2
+    return 2 * earth_radius_km * asin(sqrt(a))
+
+
+def _is_within_range(place: Activity | Restaurant, origin_lat: float, origin_lon: float) -> bool:
+    if place.lat is None or place.lon is None:
+        return True  # Ungeocoded — nothing to judge distance against, let it through.
+    return _haversine_km(origin_lat, origin_lon, place.lat, place.lon) <= MAX_PLACE_DISTANCE_KM
+
+
+def _filter_by_distance(
+    activities: list[Activity], restaurants: list[Restaurant], origin_lat: float, origin_lon: float
+) -> tuple[list[Activity], list[Restaurant]]:
+    kept_activities = [a for a in activities if _is_within_range(a, origin_lat, origin_lon)]
+    kept_restaurants = [r for r in restaurants if _is_within_range(r, origin_lat, origin_lon)]
+    dropped = (len(activities) - len(kept_activities)) + (len(restaurants) - len(kept_restaurants))
+    if dropped:
+        logger.warning("Dropped %d place(s) beyond %gkm of the destination", dropped, MAX_PLACE_DISTANCE_KM)
+    return kept_activities, kept_restaurants
+
+
+def _geocode_itinerary(destination: str, itinerary: ItineraryResponse, origin_lat: float, origin_lon: float) -> None:
     for day in itinerary.days:
         for activity in day.activities:
             _geocode_place(destination, activity)
         for restaurant in day.restaurants:
             _geocode_place(destination, restaurant)
+        day.activities, day.restaurants = _filter_by_distance(
+            day.activities, day.restaurants, origin_lat, origin_lon
+        )
+
+
+def _fetch_destination_image(city_label: str) -> str | None:
+    result = _geocode(city_label)
+    if result is None:
+        return None
+    _, _, place_id = result
+    return _fetch_place_photo_url(place_id) if place_id else None
 
 
 def _build_translation_prompt(payload: dict) -> str:
@@ -384,7 +502,8 @@ def generate_itinerary(request: ItineraryRequest, lang: str = "fr") -> Itinerary
     data = json.loads(text_block)
     itinerary = ItineraryResponse.model_validate(data)
 
-    _geocode_itinerary(request.city.name, itinerary)
+    _geocode_itinerary(request.city.name, itinerary, request.city.lat, request.city.lon)
+    itinerary.image_url = _fetch_destination_image(request.city.label)
     translated = _translate_to_english(itinerary)
 
     itinerary_id: str | None = None
@@ -434,7 +553,7 @@ def _regenerate_full(
 
     text_block = next(block.text for block in response.content if block.type == "text")
     itinerary = ItineraryResponse.model_validate(json.loads(text_block))
-    _geocode_itinerary(request.city.name, itinerary)
+    _geocode_itinerary(request.city.name, itinerary, request.city.lat, request.city.lon)
     translated = _translate_to_english(itinerary)
 
     replace_days(itinerary_id, itinerary, translated)
@@ -528,6 +647,9 @@ def _regenerate_partial(
             _geocode_place(city_name, activity)
         for restaurant in new_restaurants:
             _geocode_place(city_name, restaurant)
+        new_activities, new_restaurants = _filter_by_distance(
+            new_activities, new_restaurants, context.city_lat, context.city_lon
+        )
 
         final_activities = _merge_by_index(day.activities, replace_activity_idx, new_activities)
         final_restaurants = _merge_by_index(day.restaurants, replace_restaurant_idx, new_restaurants)

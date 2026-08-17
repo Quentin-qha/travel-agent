@@ -31,6 +31,7 @@ export interface ItineraryActivity {
   source_url: string;
   lat: number | null;
   lon: number | null;
+  image_url: string | null;
 }
 
 export interface ItineraryRestaurant {
@@ -42,6 +43,7 @@ export interface ItineraryRestaurant {
   source_url: string;
   lat: number | null;
   lon: number | null;
+  image_url: string | null;
 }
 
 export interface ItineraryDay {
@@ -58,6 +60,7 @@ export interface ItineraryResult {
   summary: string;
   trip_types: string[];
   days: ItineraryDay[];
+  image_url: string | null;
   // Only present right after creation — the creator's browser stores it in a
   // cookie and never receives it again.
   edit_token?: string | null;
@@ -70,6 +73,7 @@ export interface ItineraryViewData {
   summary: string;
   trip_types: string[];
   days: ItineraryDay[];
+  image_url: string | null;
   // Whether the viewer holds a valid edit token for this itinerary.
   can_edit: boolean;
 }

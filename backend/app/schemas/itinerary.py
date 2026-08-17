@@ -58,6 +58,8 @@ class Activity(BaseModel):
     source_url: str
     lat: float | None = None
     lon: float | None = None
+    # Google Places photo URL — filled in after geocoding, never by the model.
+    image_url: str | None = None
 
 
 class Restaurant(BaseModel):
@@ -71,6 +73,8 @@ class Restaurant(BaseModel):
     source_url: str
     lat: float | None = None
     lon: float | None = None
+    # Google Places photo URL — filled in after geocoding, never by the model.
+    image_url: str | None = None
 
 
 class DayPlan(BaseModel):
@@ -89,6 +93,8 @@ class ItineraryResponse(BaseModel):
     destination_country: str
     summary: str
     days: list[DayPlan]
+    # Cover photo for the destination — filled in after geocoding, never by the model.
+    image_url: str | None = None
 
 
 class ItineraryCreateResponse(ItineraryResponse):
@@ -112,6 +118,7 @@ class ItineraryDetail(BaseModel):
     summary: str
     trip_types: list[str] = Field(default_factory=list)
     days: list[DayPlan]
+    image_url: str | None = None
     # Whether the requester's edit_token matched this itinerary's — never the
     # raw token itself, so a shared link can't leak edit rights.
     can_edit: bool = False

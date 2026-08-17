@@ -52,6 +52,7 @@ def _insert_activities(
                     "source_url": activity.source_url,
                     "lat": activity.lat,
                     "lon": activity.lon,
+                    "image_url": activity.image_url,
                     "sort_order": index,
                 }
                 for index, activity in enumerate(activities)
@@ -102,6 +103,7 @@ def _insert_restaurants(
                     "source_url": restaurant.source_url,
                     "lat": restaurant.lat,
                     "lon": restaurant.lon,
+                    "image_url": restaurant.image_url,
                     "sort_order": index,
                 }
                 for index, restaurant in enumerate(restaurants)
@@ -166,6 +168,7 @@ def save_itinerary(
                 "city_lat": request.city.lat,
                 "city_lon": request.city.lon,
                 "edit_token": edit_token,
+                "image_url": itinerary.image_url,
             }
         )
         .execute()
@@ -260,6 +263,7 @@ def get_itinerary(
         summary=itinerary_text.get("summary") or "",
         trip_types=itinerary_row.get("trip_types") or [],
         days=days,
+        image_url=itinerary_row.get("image_url"),
         can_edit=bool(edit_token) and secrets.compare_digest(edit_token, itinerary_row["edit_token"]),
     )
 
@@ -276,6 +280,7 @@ def _build_activity(row: dict, locale: str) -> Activity:
         source_url=row["source_url"],
         lat=row["lat"],
         lon=row["lon"],
+        image_url=row.get("image_url"),
     )
 
 
@@ -290,6 +295,7 @@ def _build_restaurant(row: dict, locale: str) -> Restaurant:
         source_url=row["source_url"],
         lat=row["lat"],
         lon=row["lon"],
+        image_url=row.get("image_url"),
     )
 
 

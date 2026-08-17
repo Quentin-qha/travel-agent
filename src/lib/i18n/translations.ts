@@ -103,6 +103,9 @@ const fr = {
     dayLabel: "Jour",
     all: "Tout",
     linkCopied: "Lien de partage copié",
+    samePlace: "{count} lieux à cet endroit",
+    expandMap: "Agrandir la carte",
+    collapseMap: "Réduire la carte",
   },
   library: {
     heading: "Bibliothèque de voyages",
@@ -232,6 +235,9 @@ const en: typeof fr = {
     dayLabel: "Day",
     all: "All",
     linkCopied: "Share link copied",
+    samePlace: "{count} places here",
+    expandMap: "Expand map",
+    collapseMap: "Collapse map",
   },
   library: {
     heading: "Trip library",

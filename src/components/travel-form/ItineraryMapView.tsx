@@ -3,7 +3,19 @@
 import dynamic from "next/dynamic";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { format, parseISO } from "date-fns";
-import { Check, Clock, ForkKnife, MapPin, Pencil, Share2, TriangleAlert, UtensilsCrossed, X } from "lucide-react";
+import {
+  Check,
+  Clock,
+  ForkKnife,
+  Maximize2,
+  MapPin,
+  Minimize2,
+  Pencil,
+  Share2,
+  TriangleAlert,
+  UtensilsCrossed,
+  X,
+} from "lucide-react";
 import { useDateFnsLocale, useLanguage } from "@/lib/i18n/LanguageProvider";
 import { translateTripType } from "@/lib/i18n/tripTypeLabels";
 import { getEditTokenCookie } from "@/lib/editToken";
@@ -54,6 +66,7 @@ function buildPoints(day: ItineraryDay | undefined): MapPoint[] {
       sourceUrl: activity.source_url,
       lat: activity.lat,
       lon: activity.lon,
+      imageUrl: activity.image_url,
     });
   });
 
@@ -69,6 +82,7 @@ function buildPoints(day: ItineraryDay | undefined): MapPoint[] {
       sourceUrl: restaurant.source_url,
       lat: restaurant.lat,
       lon: restaurant.lon,
+      imageUrl: restaurant.image_url,
     });
   });
 
@@ -104,6 +118,7 @@ export default function ItineraryMapView({ itineraryId, itinerary: initialItiner
   const sidebarRef = useRef<HTMLDivElement>(null);
   const stickyHeaderRef = useRef<HTMLDivElement>(null);
 
+  const [isMapExpanded, setIsMapExpanded] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [selectedForRegen, setSelectedForRegen] = useState<Set<string>>(new Set());
   const [isRegenerating, setIsRegenerating] = useState(false);
@@ -229,7 +244,7 @@ export default function ItineraryMapView({ itineraryId, itinerary: initialItiner
       {isRegenerating && <GenerationLoaderModal />}
       <div
         ref={sidebarRef}
-        className="order-2 flex w-full flex-col overflow-y-auto lg:order-1 lg:h-svh lg:w-[420px] lg:shrink-0 lg:border-r lg:border-zinc-200 dark:lg:border-zinc-800"
+        className="flex h-svh w-full flex-col overflow-y-auto lg:w-[420px] lg:shrink-0 lg:border-r lg:border-zinc-200 dark:lg:border-zinc-800"
       >
         <div
           ref={stickyHeaderRef}
@@ -304,17 +319,29 @@ export default function ItineraryMapView({ itineraryId, itinerary: initialItiner
               ))}
             </div>
           )}
-          <p className="mt-2 text-sm text-zinc-500 dark:text-zinc-400">{itinerary.summary}</p>
-
-          {regenError && (
-            <div className="mt-2.5 flex items-start gap-1.5 rounded-lg border border-red-200 bg-red-50 px-2.5 py-2 text-xs text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-400">
-              <TriangleAlert className="mt-0.5 size-3.5 shrink-0" />
-              <span>{regenError}</span>
-            </div>
-          )}
         </div>
 
         <div className="flex-1 px-4 py-4">
+          <div className="mb-4">
+            <p className="text-sm text-zinc-500 dark:text-zinc-400">{itinerary.summary}</p>
+
+            {itinerary.image_url && (
+              // eslint-disable-next-line @next/next/no-img-element -- external Google Places URL, not a local/optimizable asset.
+              <img
+                src={itinerary.image_url}
+                alt={formatDestination(itinerary.destination_city, itinerary.destination_country)}
+                className="mt-3 aspect-video w-full rounded-xl object-cover"
+              />
+            )}
+
+            {regenError && (
+              <div className="mt-2.5 flex items-start gap-1.5 rounded-lg border border-red-200 bg-red-50 px-2.5 py-2 text-xs text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-400">
+                <TriangleAlert className="mt-0.5 size-3.5 shrink-0" />
+                <span>{regenError}</span>
+              </div>
+            )}
+          </div>
+
           {isEditing && (
             <div className="mb-3 flex justify-end">
               <button
@@ -412,42 +439,61 @@ export default function ItineraryMapView({ itineraryId, itinerary: initialItiner
               </div>
             );
           })}
+          {/* Keeps list content clear of the fixed bottom map panel on mobile. */}
+          <div className="h-[40vh] shrink-0 lg:hidden" aria-hidden />
         </div>
       </div>
 
-      <div className="relative order-1 h-[45vh] w-full lg:order-2 lg:h-svh lg:flex-1">
+      <div
+        className={
+          isMapExpanded
+            ? "fixed inset-0 z-40 h-svh w-full lg:relative lg:inset-auto lg:z-auto lg:h-svh lg:flex-1"
+            : "fixed inset-x-0 bottom-0 z-30 h-[40vh] w-full lg:relative lg:inset-auto lg:z-auto lg:h-svh lg:flex-1"
+        }
+      >
         <ItineraryMap points={points} selectedKey={selectedKey} onSelect={setSelectedKey} fallbackCenter={fallbackCenter} />
 
-        <div className="absolute top-3 left-3 z-[1000] flex gap-1.5 rounded-full bg-white/95 p-1.5 shadow-lg shadow-zinc-900/10 backdrop-blur-sm dark:bg-zinc-900/95">
+        <div className="absolute top-3 left-3 z-[1000] flex max-w-[calc(100%-1.5rem)] items-center gap-1.5 rounded-full bg-white/95 p-1.5 shadow-lg shadow-zinc-900/10 backdrop-blur-sm dark:bg-zinc-900/95">
+          <div className="flex min-w-0 gap-1.5 overflow-x-auto">
+            <button
+              type="button"
+              onClick={() => handleDayButtonClick("all")}
+              className={`flex h-9 shrink-0 items-center justify-center rounded-full px-4 text-sm font-semibold transition ${
+                selectedDay === "all"
+                  ? "bg-violet-600 text-white shadow"
+                  : "text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800"
+              }`}
+            >
+              {t("itineraryMap.all")}
+            </button>
+            {itinerary.days.map((day) => {
+              const isActive = day.day_number === selectedDay;
+              return (
+                <button
+                  key={day.day_number}
+                  type="button"
+                  onClick={() => handleDayButtonClick(day.day_number)}
+                  title={format(parseISO(day.date), "EEEE d MMMM", { locale: dateLocale })}
+                  className={`flex h-9 shrink-0 items-center justify-center rounded-full text-sm font-semibold transition ${
+                    isActive
+                      ? "bg-violet-600 px-4 text-white shadow"
+                      : "size-9 text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                  }`}
+                >
+                  {isActive ? `${t("itineraryMap.dayLabel")} ${day.day_number}` : day.day_number}
+                </button>
+              );
+            })}
+          </div>
+
           <button
             type="button"
-            onClick={() => handleDayButtonClick("all")}
-            className={`flex h-9 items-center justify-center rounded-full px-4 text-sm font-semibold transition ${
-              selectedDay === "all"
-                ? "bg-violet-600 text-white shadow"
-                : "text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800"
-            }`}
+            onClick={() => setIsMapExpanded((expanded) => !expanded)}
+            title={t(isMapExpanded ? "itineraryMap.collapseMap" : "itineraryMap.expandMap")}
+            className="flex size-9 shrink-0 items-center justify-center rounded-full text-zinc-600 transition hover:bg-zinc-100 lg:hidden dark:text-zinc-300 dark:hover:bg-zinc-800"
           >
-            {t("itineraryMap.all")}
+            {isMapExpanded ? <Minimize2 className="size-4" /> : <Maximize2 className="size-4" />}
           </button>
-          {itinerary.days.map((day) => {
-            const isActive = day.day_number === selectedDay;
-            return (
-              <button
-                key={day.day_number}
-                type="button"
-                onClick={() => handleDayButtonClick(day.day_number)}
-                title={format(parseISO(day.date), "EEEE d MMMM", { locale: dateLocale })}
-                className={`flex h-9 items-center justify-center rounded-full text-sm font-semibold transition ${
-                  isActive
-                    ? "bg-violet-600 px-4 text-white shadow"
-                    : "size-9 text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800"
-                }`}
-              >
-                {isActive ? `${t("itineraryMap.dayLabel")} ${day.day_number}` : day.day_number}
-              </button>
-            );
-          })}
         </div>
       </div>
 
