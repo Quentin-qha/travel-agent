@@ -175,6 +175,42 @@ def _build_partial_prompt(
     )
 
 
+def _build_full_day_prompt(context: ItineraryContext, day_date: date) -> str:
+    """Rebuilds ONE day entirely from scratch — unlike _build_partial_prompt, there's no
+    'kept' context (everything currently on that day, if anything, is discarded) and no
+    exact item count to hit: the model picks a sensible number of activities/restaurants,
+    same as the initial full generation. This is what lets an already-empty day (nothing to
+    key an item-replacement request against) be regenerated at all."""
+    city_label = context.destination_city or context.destination_country
+    trip_types = ", ".join(context.trip_types) if context.trip_types else "aucune préférence particulière"
+
+    return (
+        f"Tu reconstruis ENTIÈREMENT UNE SEULE journée ({day_date.isoformat()}) d'un voyage déjà "
+        f"planifié à {city_label}, pour {context.traveler_count} voyageur(s) en configuration "
+        f"'{context.traveler_type.value}'. Ambiances recherchées : {trip_types}.\n\n"
+        "Ignore tout ce qui existait sur cette journée avant — propose un planning complet et "
+        "réaliste, comme si tu la planifiais pour la première fois.\n\n"
+        "RÈGLES :\n"
+        "- Rédige tous les textes (name, description, category, cuisine) exclusivement en français, "
+        "quelle que soit la langue de tes sources web — traduis-les toi-même, ne recopie jamais un "
+        "extrait anglais tel quel.\n"
+        "- Regroupe les activités et restaurants par proximité géographique, pour minimiser les "
+        "déplacements dans la journée.\n"
+        f"- Tout doit se trouver à moins de {MAX_PLACE_DISTANCE_KM:g} km du centre de {city_label} — "
+        "n'inclus rien de plus éloigné.\n"
+        "- Propose 1 à 2 restaurants (déjeuner et/ou dîner) proches des activités de cette journée.\n"
+        "- Vise environ 4 à 8 heures d'activités pour la journée, hors repas — ni vide, ni surchargée.\n"
+        "- Utilise la recherche web pour trouver des lieux réels, ouverts, adaptés au profil et aux "
+        "ambiances recherchées.\n"
+        "- budget_level réaliste ('gratuit', '€', '€€', '€€€').\n"
+        "- source_url doit être l'URL exacte d'un résultat de recherche web réellement consulté — jamais "
+        "inventée. N'inclus un élément que si tu as une source réelle à citer.\n"
+        "- location_query : nom court et exact du lieu pour le géocodage, distinct de 'name'.\n"
+        "- Laisse lat/lon et image_url à null.\n\n"
+        "Réponds uniquement selon le schéma fourni."
+    )
+
+
 def _request_params(messages: list[dict], schema: dict, use_search: bool = True) -> dict:
     model = settings.claude_model
     supports_adaptive = model in MODELS_WITH_ADAPTIVE_FEATURES
@@ -581,19 +617,35 @@ def _regenerate_full(
     return updated
 
 
-def _parse_item_keys(item_keys: list[str]) -> dict[int, dict[str, set[int]]]:
-    """Card keys look like '2-activity-0' (day_number-kind-index) — see ItineraryMapView.tsx."""
+def _parse_item_keys(item_keys: list[str]) -> tuple[dict[int, dict[str, set[int]]], set[int]]:
+    """Card keys look like '2-activity-0' (day_number-kind-index) for a specific item, or
+    '2-day' (day_number-day) to rebuild that whole day from scratch regardless of what it
+    currently contains — the only way to target a day with zero items, which has no index to
+    key an item replacement against. See ItineraryMapView.tsx."""
     replace_by_day: dict[int, dict[str, set[int]]] = {}
+    full_day_numbers: set[int] = set()
     for key in item_keys:
+        parts = key.split("-")
+        if len(parts) == 2:
+            day_str, kind = parts
+            if kind != "day":
+                continue
+            try:
+                full_day_numbers.add(int(day_str))
+            except ValueError:
+                continue
+            continue
+        if len(parts) != 3:
+            continue
+        day_str, kind, index_str = parts
         try:
-            day_str, kind, index_str = key.split("-")
             day_number, index = int(day_str), int(index_str)
         except ValueError:
             continue
         if kind not in ("activity", "restaurant"):
             continue
         replace_by_day.setdefault(day_number, {}).setdefault(kind, set()).add(index)
-    return replace_by_day
+    return replace_by_day, full_day_numbers
 
 
 def _merge_by_index(original: list, replaced_indices: set[int], new_items: list) -> list:
@@ -626,39 +678,53 @@ def _regenerate_partial(
     current_en = get_itinerary(itinerary_id, locale="en")
     en_days_by_number = {day.day_number: day for day in current_en.days} if current_en else {}
 
-    replace_by_day = _parse_item_keys(item_keys)
+    replace_by_day, full_day_numbers = _parse_item_keys(item_keys)
     day_plan_ids = get_day_plan_ids(itinerary_id)
     city_name = context.destination_city or context.destination_country
 
     for day in current.days:
+        is_full_day = day.day_number in full_day_numbers
         replace = replace_by_day.get(day.day_number)
-        if not replace:
+        if not is_full_day and not replace:
             continue
 
-        replace_activity_idx = replace.get("activity", set())
-        replace_restaurant_idx = replace.get("restaurant", set())
-        if not replace_activity_idx and not replace_restaurant_idx:
-            continue
+        if is_full_day:
+            # Whole day, from scratch: nothing is "kept", and the model isn't asked to hit
+            # an exact count — it picks a sensible day the same way full generation does.
+            replace_activity_idx = set(range(len(day.activities)))
+            replace_restaurant_idx = set(range(len(day.restaurants)))
+            prompt = _build_full_day_prompt(context, day.date)
+        else:
+            replace_activity_idx = replace.get("activity", set())
+            replace_restaurant_idx = replace.get("restaurant", set())
+            if not replace_activity_idx and not replace_restaurant_idx:
+                continue
 
-        kept_activities = [a for i, a in enumerate(day.activities) if i not in replace_activity_idx]
-        kept_restaurants = [r for i, r in enumerate(day.restaurants) if i not in replace_restaurant_idx]
+            kept_activities = [a for i, a in enumerate(day.activities) if i not in replace_activity_idx]
+            kept_restaurants = [r for i, r in enumerate(day.restaurants) if i not in replace_restaurant_idx]
 
-        prompt = _build_partial_prompt(
-            context,
-            day.date,
-            kept_activities,
-            kept_restaurants,
-            len(replace_activity_idx),
-            len(replace_restaurant_idx),
-        )
+            prompt = _build_partial_prompt(
+                context,
+                day.date,
+                kept_activities,
+                kept_restaurants,
+                len(replace_activity_idx),
+                len(replace_restaurant_idx),
+            )
+
         response = _run_to_completion([{"role": "user", "content": prompt}], DAY_ITEMS_RESPONSE_SCHEMA)
         text_block = next(block.text for block in response.content if block.type == "text")
         day_items = DayItemsResponse.model_validate(json.loads(text_block))
 
-        new_activities = day_items.activities[: len(replace_activity_idx)]
-        new_restaurants = day_items.restaurants[: len(replace_restaurant_idx)]
-        if len(new_activities) < len(replace_activity_idx) or len(new_restaurants) < len(replace_restaurant_idx):
-            logger.warning("Regeneration returned fewer items than requested for day %s", day.day_number)
+        if is_full_day:
+            # No fixed count to hit — take everything the model returned.
+            new_activities = day_items.activities
+            new_restaurants = day_items.restaurants
+        else:
+            new_activities = day_items.activities[: len(replace_activity_idx)]
+            new_restaurants = day_items.restaurants[: len(replace_restaurant_idx)]
+            if len(new_activities) < len(replace_activity_idx) or len(new_restaurants) < len(replace_restaurant_idx):
+                logger.warning("Regeneration returned fewer items than requested for day %s", day.day_number)
 
         for activity in new_activities:
             _geocode_place(city_name, activity)
@@ -668,25 +734,33 @@ def _regenerate_partial(
             new_activities, new_restaurants, context.city_lat, context.city_lon
         )
 
-        final_activities = _merge_by_index(day.activities, replace_activity_idx, new_activities)
-        final_restaurants = _merge_by_index(day.restaurants, replace_restaurant_idx, new_restaurants)
+        if is_full_day:
+            # Every existing item was discarded — nothing to merge back in by index.
+            final_activities = new_activities
+            final_restaurants = new_restaurants
+        else:
+            final_activities = _merge_by_index(day.activities, replace_activity_idx, new_activities)
+            final_restaurants = _merge_by_index(day.restaurants, replace_restaurant_idx, new_restaurants)
 
         translated_new = _translate_day_items(new_activities, new_restaurants)
         final_day_en: DayContent | None = None
         if translated_new is not None:
-            en_day = en_days_by_number.get(day.day_number)
-            en_activities = [
-                ActivityContent(name=a.name, description=a.description, category=a.category)
-                for a in (en_day.activities if en_day else day.activities)
-            ]
-            en_restaurants = [
-                RestaurantContent(name=r.name, description=r.description, cuisine=r.cuisine)
-                for r in (en_day.restaurants if en_day else day.restaurants)
-            ]
-            final_day_en = DayContent(
-                activities=_merge_by_index(en_activities, replace_activity_idx, translated_new.activities),
-                restaurants=_merge_by_index(en_restaurants, replace_restaurant_idx, translated_new.restaurants),
-            )
+            if is_full_day:
+                final_day_en = translated_new
+            else:
+                en_day = en_days_by_number.get(day.day_number)
+                en_activities = [
+                    ActivityContent(name=a.name, description=a.description, category=a.category)
+                    for a in (en_day.activities if en_day else day.activities)
+                ]
+                en_restaurants = [
+                    RestaurantContent(name=r.name, description=r.description, cuisine=r.cuisine)
+                    for r in (en_day.restaurants if en_day else day.restaurants)
+                ]
+                final_day_en = DayContent(
+                    activities=_merge_by_index(en_activities, replace_activity_idx, translated_new.activities),
+                    restaurants=_merge_by_index(en_restaurants, replace_restaurant_idx, translated_new.restaurants),
+                )
 
         day_plan_id = day_plan_ids.get(day.day_number)
         if day_plan_id:

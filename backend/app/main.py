@@ -47,8 +47,10 @@ Claude + Google Geocoding pipeline with no other access control. Exceeding it re
 Each activity/restaurant is identified by a key
 `"{day}-{activity|restaurant}-{index}"` (e.g. `"2-activity-0"` = 1st activity
 of day 2), used to target specific items during a partial regeneration.
-Recompute these keys from the most recent `GET` response — they aren't
-stable across a regeneration.
+A key of `"{day}-day"` (e.g. `"3-day"`) instead rebuilds that whole day from
+scratch — the only way to target a day with zero items, since it isn't keyed
+to an existing index. Recompute these keys from the most recent `GET`
+response — they aren't stable across a regeneration.
 """
 
 TAGS_METADATA = [
