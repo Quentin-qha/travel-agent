@@ -412,3 +412,21 @@ def replace_day_items(
     client.table("restaurant").delete().eq("day_plan_id", day_plan_id).execute()
     _insert_activities(day_plan_id, activities, translated.activities if translated else None)
     _insert_restaurants(day_plan_id, restaurants, translated.restaurants if translated else None)
+
+
+def photo_reference_exists(photo_reference: str) -> bool:
+    """Whether this photo_reference belongs to an image_url we actually stored.
+
+    Guards the photo proxy (api/routes/photo.py) against being used as an open,
+    unauthenticated relay for arbitrary Google Photos requests billed to our API key —
+    without this, anyone could pass in a photo_reference obtained completely outside our
+    app (their own Google API key, their own Places searches) and have our server fetch it
+    on their behalf. Exact-match, not LIKE, since backfill_photo_urls.py normalizes every
+    stored image_url to exactly `{api_base_url}/api/photo/{reference}`.
+    """
+    expected_url = f"{settings.api_base_url}/api/photo/{photo_reference}"
+    for table in ("itinerary", "activity", "restaurant"):
+        resp = client.table(table).select("id").eq("image_url", expected_url).limit(1).execute()
+        if resp.data:
+            return True
+    return False
