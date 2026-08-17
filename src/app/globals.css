@@ -10,6 +10,28 @@
   --color-foreground: var(--foreground);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
+  --animate-orbit: orbit 2.6s linear infinite;
+  --animate-fade-in: fade-in 0.4s ease-out;
+}
+
+@keyframes orbit {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 @media (prefers-color-scheme: dark) {
@@ -23,4 +45,51 @@ body {
   background: var(--background);
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
+}
+
+button:not(:disabled) {
+  cursor: pointer;
+}
+
+/* Dual-thumb range slider: two overlapping <input type="range">, track ignores
+   pointer events so only the thumb underneath the cursor reacts, letting both
+   handles be dragged independently even when they sit at the same position. */
+.dual-range-thumb {
+  pointer-events: none;
+}
+
+.dual-range-thumb::-webkit-slider-runnable-track {
+  -webkit-appearance: none;
+  background: transparent;
+  height: 100%;
+}
+
+.dual-range-thumb::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  pointer-events: auto;
+  width: 16px;
+  height: 16px;
+  margin-top: 0;
+  border-radius: 9999px;
+  background: #7c3aed;
+  border: 2px solid white;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+  cursor: pointer;
+}
+
+.dual-range-thumb::-moz-range-track {
+  background: transparent;
+  height: 100%;
+  border: none;
+}
+
+.dual-range-thumb::-moz-range-thumb {
+  pointer-events: auto;
+  width: 16px;
+  height: 16px;
+  border-radius: 9999px;
+  background: #7c3aed;
+  border: 2px solid white;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+  cursor: pointer;
 }

@@ -1,8 +1,9 @@
 "use client";
 
 import { format } from "date-fns";
-import { fr } from "date-fns/locale";
 import { Calendar, MapPin, Sparkles, Tags, Users } from "lucide-react";
+import { useDateFnsLocale, useLanguage } from "@/lib/i18n/LanguageProvider";
+import { translateTripType } from "@/lib/i18n/tripTypeLabels";
 import { TRAVELER_TYPES, type TravelFormData } from "./types";
 
 interface SummaryStepProps {
@@ -10,31 +11,35 @@ interface SummaryStepProps {
 }
 
 export default function SummaryStep({ data }: SummaryStepProps) {
-  const travelerLabel = TRAVELER_TYPES.find((t) => t.id === data.travelerType)?.label ?? "—";
+  const { t, locale } = useLanguage();
+  const dateLocale = useDateFnsLocale();
+  const travelerLabel = TRAVELER_TYPES.find((type) => type.id === data.travelerType)
+    ? t(`travelerTypes.${data.travelerType}`)
+    : "—";
 
   const rows = [
     {
       icon: MapPin,
-      label: "Destination",
+      label: t("summaryStep.destination"),
       value: data.city?.name ?? "—",
     },
     {
       icon: Calendar,
-      label: "Dates",
+      label: t("summaryStep.dates"),
       value:
         data.dateRange.from && data.dateRange.to
-          ? `${format(data.dateRange.from, "d MMM", { locale: fr })} – ${format(data.dateRange.to, "d MMM yyyy", { locale: fr })}`
+          ? `${format(data.dateRange.from, "d MMM", { locale: dateLocale })} – ${format(data.dateRange.to, "d MMM yyyy", { locale: dateLocale })}`
           : "—",
     },
     {
       icon: Users,
-      label: "Voyageurs",
-      value: `${travelerLabel} · ${data.travelerCount} ${data.travelerCount > 1 ? "personnes" : "personne"}`,
+      label: t("summaryStep.travelers"),
+      value: `${travelerLabel} · ${data.travelerCount} ${data.travelerCount > 1 ? t("summaryStep.people") : t("summaryStep.person")}`,
     },
     {
       icon: Tags,
-      label: "Ambiances",
-      value: data.tripTypes.length > 0 ? data.tripTypes.join(", ") : "—",
+      label: t("summaryStep.moods"),
+      value: data.tripTypes.length > 0 ? data.tripTypes.map((type) => translateTripType(type, locale)).join(", ") : "—",
     },
   ];
 
@@ -42,7 +47,7 @@ export default function SummaryStep({ data }: SummaryStepProps) {
     <div>
       <div className="mb-5 flex items-center gap-2 text-sm text-zinc-500 dark:text-zinc-400">
         <Sparkles className="size-4 text-violet-500" />
-        Vérifie ton voyage avant de le générer
+        {t("summaryStep.heading")}
       </div>
 
       <dl className="divide-y divide-zinc-100 overflow-hidden rounded-2xl border border-zinc-200 bg-white dark:divide-zinc-800 dark:border-zinc-700 dark:bg-zinc-900">
