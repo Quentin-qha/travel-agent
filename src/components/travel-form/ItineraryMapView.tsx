@@ -88,11 +88,21 @@ function buildPoints(day: ItineraryDay | undefined): MapPoint[] {
   return points;
 }
 
-function allItemKeys(days: ItineraryDay[]): string[] {
-  return days.flatMap((day) => [
-    ...day.activities.map((_, index) => `${day.day_number}-activity-${index}`),
-    ...day.restaurants.map((_, index) => `${day.day_number}-restaurant-${index}`),
-  ]);
+function dayKeyFor(dayNumber: number): string {
+  return `${dayNumber}-day`;
+}
+
+// A day with zero items has no activity/restaurant index to key a selection on — the only
+// way to include it is its whole-day key (see backend's _parse_item_keys), which also
+// asks the model to rebuild the day from scratch rather than replace a fixed item count.
+function allSelectableKeys(days: ItineraryDay[]): string[] {
+  return days.flatMap((day) => {
+    if (day.activities.length === 0 && day.restaurants.length === 0) return [dayKeyFor(day.day_number)];
+    return [
+      ...day.activities.map((_, index) => `${day.day_number}-activity-${index}`),
+      ...day.restaurants.map((_, index) => `${day.day_number}-restaurant-${index}`),
+    ];
+  });
 }
 
 const PARIS_FALLBACK: [number, number] = [48.8566, 2.3522];
@@ -133,7 +143,7 @@ export default function ItineraryMapView({ itineraryId, itinerary: initialItiner
 
   const fallbackCenter = useMemo(() => computeFallbackCenter(itinerary.days), [itinerary.days]);
 
-  const itemKeys = useMemo(() => allItemKeys(itinerary.days), [itinerary.days]);
+  const itemKeys = useMemo(() => allSelectableKeys(itinerary.days), [itinerary.days]);
   const selectedCount = selectedForRegen.size;
   const regenerateLabel =
     selectedCount === 0
@@ -195,11 +205,29 @@ export default function ItineraryMapView({ itineraryId, itinerary: initialItiner
     setTimeout(() => setShowCopiedToast(false), 2000);
   }
 
-  function toggleItemForRegen(key: string) {
+  function toggleItemForRegen(key: string, dayNumber: number) {
     setSelectedForRegen((prev) => {
       const next = new Set(prev);
+      // Editing one item by hand means the day is no longer a whole-day rebuild.
+      next.delete(dayKeyFor(dayNumber));
       if (next.has(key)) next.delete(key);
       else next.add(key);
+      return next;
+    });
+  }
+
+  function toggleDayForRegen(day: ItineraryDay) {
+    const dKey = dayKeyFor(day.day_number);
+    setSelectedForRegen((prev) => {
+      const next = new Set(prev);
+      if (next.has(dKey)) {
+        next.delete(dKey);
+        return next;
+      }
+      next.add(dKey);
+      // The whole-day key supersedes any per-item selection for this day.
+      day.activities.forEach((_, index) => next.delete(`${day.day_number}-activity-${index}`));
+      day.restaurants.forEach((_, index) => next.delete(`${day.day_number}-restaurant-${index}`));
       return next;
     });
   }
@@ -362,6 +390,7 @@ export default function ItineraryMapView({ itineraryId, itinerary: initialItiner
             const isLastDay = dayIndex === itinerary.days.length - 1;
             const isActiveDay = day.day_number === selectedDay;
             const isDayEmpty = day.activities.length === 0 && day.restaurants.length === 0;
+            const isDayFullySelected = selectedForRegen.has(dayKeyFor(day.day_number));
 
             return (
               <div
@@ -386,10 +415,26 @@ export default function ItineraryMapView({ itineraryId, itinerary: initialItiner
                 </div>
 
                 <div className={`min-w-0 flex-1 ${isLastDay ? "" : "pb-6"}`}>
-                  <p className="mb-3 pt-1 text-sm font-semibold capitalize text-zinc-800 dark:text-zinc-100">
-                    {t("itineraryMap.dayLabel")} {day.day_number} —{" "}
-                    {format(parseISO(day.date), "EEEE d MMMM", { locale: dateLocale })}
-                  </p>
+                  <div className="mb-3 flex items-center justify-between gap-2 pt-1">
+                    <p className="text-sm font-semibold capitalize text-zinc-800 dark:text-zinc-100">
+                      {t("itineraryMap.dayLabel")} {day.day_number} —{" "}
+                      {format(parseISO(day.date), "EEEE d MMMM", { locale: dateLocale })}
+                    </p>
+                    {isEditing && (
+                      <label
+                        title={t("itineraryMap.regenerateWholeDay")}
+                        className="flex shrink-0 cursor-pointer items-center gap-1.5 text-xs font-medium text-violet-600 dark:text-violet-400"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={isDayFullySelected}
+                          onChange={() => toggleDayForRegen(day)}
+                          className="size-3.5 accent-violet-600"
+                        />
+                        {t("itineraryMap.regenerateWholeDay")}
+                      </label>
+                    )}
+                  </div>
 
                   <div className="space-y-2">
                     {day.activities.map((activity, index) => {
@@ -410,8 +455,9 @@ export default function ItineraryMapView({ itineraryId, itinerary: initialItiner
                             else itemRefs.current.delete(cardKey);
                           }}
                           editable={isEditing}
-                          checked={selectedForRegen.has(cardKey)}
-                          onToggleCheck={() => toggleItemForRegen(cardKey)}
+                          checked={isDayFullySelected || selectedForRegen.has(cardKey)}
+                          disabled={isDayFullySelected}
+                          onToggleCheck={() => toggleItemForRegen(cardKey, day.day_number)}
                         />
                       );
                     })}
@@ -433,12 +479,18 @@ export default function ItineraryMapView({ itineraryId, itinerary: initialItiner
                             else itemRefs.current.delete(cardKey);
                           }}
                           editable={isEditing}
-                          checked={selectedForRegen.has(cardKey)}
-                          onToggleCheck={() => toggleItemForRegen(cardKey)}
+                          checked={isDayFullySelected || selectedForRegen.has(cardKey)}
+                          disabled={isDayFullySelected}
+                          onToggleCheck={() => toggleItemForRegen(cardKey, day.day_number)}
                         />
                       );
                     })}
-                    {isDayEmpty && <p className="text-sm text-zinc-400">{t("itineraryMap.emptyDay")}</p>}
+                    {isDayEmpty && (
+                      <p className="text-sm text-zinc-400">
+                        {t("itineraryMap.emptyDay")}
+                        {isEditing && isDayFullySelected ? ` ${t("itineraryMap.regenerateWholeDay")} ✓` : ""}
+                      </p>
+                    )}
                   </div>
                 </div>
               </div>
@@ -524,6 +576,7 @@ function SidebarCard({
   registerRef,
   editable,
   checked,
+  disabled = false,
   onToggleCheck,
 }: {
   cardKey: string;
@@ -537,13 +590,14 @@ function SidebarCard({
   registerRef: (el: HTMLDivElement | null) => void;
   editable: boolean;
   checked: boolean;
+  disabled?: boolean;
   onToggleCheck: () => void;
 }) {
   return (
     <div
       ref={registerRef}
-      onClick={() => (editable ? onToggleCheck() : onSelect(cardKey))}
-      className={`flex cursor-pointer gap-2.5 rounded-xl border p-3 transition ${
+      onClick={() => (editable ? (disabled ? undefined : onToggleCheck()) : onSelect(cardKey))}
+      className={`flex gap-2.5 rounded-xl border p-3 transition ${disabled ? "cursor-default" : "cursor-pointer"} ${
         editable
           ? checked
             ? "border-violet-400 bg-violet-50 dark:border-violet-500/50 dark:bg-violet-500/10"
@@ -557,9 +611,10 @@ function SidebarCard({
         <input
           type="checkbox"
           checked={checked}
+          disabled={disabled}
           onChange={onToggleCheck}
           onClick={(event) => event.stopPropagation()}
-          className="mt-1 size-4 shrink-0 accent-violet-600"
+          className="mt-1 size-4 shrink-0 accent-violet-600 disabled:opacity-70"
         />
       )}
       <PlaceCardContent icon={Icon} iconColor={iconColor} place={place} detail={detail} detailIcon={DetailIcon} />

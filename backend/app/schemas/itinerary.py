@@ -257,6 +257,9 @@ class RegenerateItineraryRequest(BaseModel):
         description=(
             "Keys of the items to replace, format `\"{day}-{activity|restaurant}-{index}\"` "
             "(e.g. `\"2-activity-0\"`), obtained from the most recent GET response. "
+            "Alternatively `\"{day}-day\"` (e.g. `\"3-day\"`) rebuilds that whole day from "
+            "scratch — the model isn't constrained to the previous item count, and this is "
+            "the only way to target a day that currently has zero items. "
             "If these keys cover ALL existing items, the whole trip is regenerated; "
             "otherwise only the affected days are touched and the rest is kept."
         ),
