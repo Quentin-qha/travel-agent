@@ -14,12 +14,12 @@ import TripTypeSelect from "./TripTypeSelect";
 import SummaryStep from "./SummaryStep";
 import ItineraryResultView from "./ItineraryResultView";
 import GenerationLoaderModal from "./GenerationLoaderModal";
+import { useLanguage } from "@/lib/i18n/LanguageProvider";
 import { INITIAL_FORM_DATA, isStepValid, STEPS, type ItineraryResult, type TravelFormData } from "./types";
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
 export default function TravelForm() {
   const router = useRouter();
+  const { t, locale } = useLanguage();
   const [currentStep, setCurrentStep] = useState(1);
   const [maxStepReached, setMaxStepReached] = useState(1);
   const [data, setData] = useState<TravelFormData>(INITIAL_FORM_DATA);
@@ -49,7 +49,7 @@ export default function TravelForm() {
       setError(null);
 
       try {
-        const response = await fetch(`${API_URL}/api/itinerary`, {
+        const response = await fetch(`/api/itinerary?lang=${locale}`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -66,12 +66,14 @@ export default function TravelForm() {
 
         if (!response.ok) {
           const body = await response.json().catch(() => null);
-          throw new Error(body?.detail ?? `Erreur ${response.status}`);
+          throw new Error(body?.detail ?? t("common.error.status", { status: response.status }));
         }
 
         const result: ItineraryResult = await response.json();
 
         if (result.id) {
+          // The edit token (if any) was already set as an HttpOnly cookie by
+          // the /api/itinerary route handler — nothing to do with it here.
           // Keep the loader visible until the new page takes over.
           router.push(`/${result.id}`);
           return;
@@ -81,7 +83,7 @@ export default function TravelForm() {
         setIsGenerated(true);
         setIsGenerating(false);
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Une erreur est survenue.");
+        setError(err instanceof Error ? err.message : t("common.error.generic"));
         setIsGenerating(false);
       }
       return;
@@ -118,19 +120,21 @@ export default function TravelForm() {
               <div className="flex size-14 items-center justify-center rounded-full bg-gradient-to-br from-violet-600 to-fuchsia-500 shadow-lg shadow-fuchsia-500/25">
                 <PartyPopper className="size-6 text-white" />
               </div>
-              <h2 className="text-xl font-semibold text-zinc-900 dark:text-zinc-100">Ton voyage est prêt !</h2>
+              <h2 className="text-xl font-semibold text-zinc-900 dark:text-zinc-100">
+                {t("travelForm.success.heading")}
+              </h2>
               {itinerary.id && (
                 <Link
                   href={`/${itinerary.id}`}
                   className="inline-flex items-center gap-1.5 rounded-full bg-violet-50 px-3 py-1.5 text-xs font-medium text-violet-700 transition hover:bg-violet-100 dark:bg-violet-500/10 dark:text-violet-300 dark:hover:bg-violet-500/20"
                 >
                   <Link2 className="size-3.5" />
-                  Lien permanent vers ce voyage
+                  {t("travelForm.success.permalink")}
                 </Link>
               )}
             </div>
 
-            <ItineraryResultView itinerary={itinerary} />
+            <ItineraryResultView itinerary={{ ...itinerary, can_edit: true }} />
 
             <div className="mt-6 flex justify-center border-t border-zinc-100 pt-5 dark:border-zinc-800">
               <button
@@ -138,7 +142,7 @@ export default function TravelForm() {
                 onClick={handleRestart}
                 className="rounded-full border border-zinc-200 px-4 py-2 text-sm font-medium text-zinc-600 transition hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
               >
-                Créer un nouveau voyage
+                {t("travelForm.success.restart")}
               </button>
             </div>
           </div>
@@ -154,18 +158,18 @@ export default function TravelForm() {
 
               {currentStep === 1 && (
                 <div className="space-y-6">
-                  <Field label="Où veux-tu aller ?">
+                  <Field label={t("travelForm.fields.destination")}>
                     <CityAutocomplete city={data.city} onChange={(city) => setData((d) => ({ ...d, city }))} />
                   </Field>
 
-                  <Field label="Quand ?">
+                  <Field label={t("travelForm.fields.when")}>
                     <DateRangePicker
                       value={data.dateRange}
                       onChange={(dateRange) => setData((d) => ({ ...d, dateRange }))}
                     />
                   </Field>
 
-                  <Field label="Qui part ?">
+                  <Field label={t("travelForm.fields.who")}>
                     <TravelerPicker
                       travelerType={data.travelerType}
                       travelerCount={data.travelerCount}
@@ -177,7 +181,7 @@ export default function TravelForm() {
               )}
 
               {currentStep === 2 && (
-                <Field label="Quel type de voyage cherches-tu ?">
+                <Field label={t("travelForm.fields.tripType")}>
                   <TripTypeSelect
                     selected={data.tripTypes}
                     onChange={(tripTypes) => setData((d) => ({ ...d, tripTypes }))}

@@ -1,6 +1,7 @@
 "use client";
 
 import { ChevronLeft, ChevronRight, Sparkles } from "lucide-react";
+import { useLanguage } from "@/lib/i18n/LanguageProvider";
 
 interface StepFooterProps {
   isFirstStep: boolean;
@@ -19,6 +20,8 @@ export default function StepFooter({
   onPrevious,
   onNext,
 }: StepFooterProps) {
+  const { t } = useLanguage();
+
   return (
     <div className="flex items-center justify-between">
       <button
@@ -30,7 +33,7 @@ export default function StepFooter({
         }`}
       >
         <ChevronLeft className="size-4" />
-        Précédent
+        {t("stepFooter.previous")}
       </button>
 
       <button
@@ -46,11 +49,11 @@ export default function StepFooter({
         {isLastStep ? (
           <>
             <Sparkles className="size-4" />
-            {isGenerating ? "Génération..." : "Générer"}
+            {isGenerating ? t("stepFooter.generating") : t("stepFooter.generate")}
           </>
         ) : (
           <>
-            <span>Suivant</span>
+            <span>{t("stepFooter.next")}</span>
             <ChevronRight className="size-4" />
           </>
         )}

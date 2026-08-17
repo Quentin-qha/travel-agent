@@ -1,8 +1,10 @@
 import Link from "next/link";
 import { ArrowRight } from "lucide-react";
+import { useLanguage } from "@/lib/i18n/LanguageProvider";
 import type { ItinerarySummary } from "@/components/travel-form/types";
 
 export default function LibraryCard({ itinerary }: { itinerary: ItinerarySummary }) {
+  const { t } = useLanguage();
   const title = itinerary.destination_city ?? itinerary.destination_country;
 
   return (
@@ -18,7 +20,7 @@ export default function LibraryCard({ itinerary }: { itinerary: ItinerarySummary
           )}
         </div>
         <span className="shrink-0 rounded-full bg-violet-100 px-2.5 py-1 text-xs font-semibold whitespace-nowrap text-violet-700 dark:bg-violet-500/15 dark:text-violet-300">
-          {itinerary.day_count} jour{itinerary.day_count > 1 ? "s" : ""}
+          {itinerary.day_count} {itinerary.day_count > 1 ? t("common.days") : t("common.day")}
         </span>
       </div>
 
@@ -41,7 +43,7 @@ export default function LibraryCard({ itinerary }: { itinerary: ItinerarySummary
 
 
       <div className="mt-4 inline-flex items-center gap-1 text-sm font-medium text-violet-600 group-hover:underline dark:text-violet-400">
-        Voir le voyage
+        {t("library.card.viewTrip")}
         <ArrowRight className="size-3.5 transition group-hover:translate-x-0.5" />
       </div>
     </Link>

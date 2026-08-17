@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Loader2, MapPin, Search, X } from "lucide-react";
+import { useLanguage } from "@/lib/i18n/LanguageProvider";
 import type { City } from "./types";
 
 interface CityAutocompleteProps {
@@ -23,6 +24,7 @@ interface NominatimResult {
 }
 
 export default function CityAutocomplete({ city, onChange }: CityAutocompleteProps) {
+  const { t } = useLanguage();
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<City[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -168,7 +170,7 @@ export default function CityAutocomplete({ city, onChange }: CityAutocompletePro
             onChange(null);
           }}
           className="shrink-0 rounded-full p-1 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-500 dark:text-zinc-500 dark:hover:bg-zinc-800 dark:hover:text-zinc-400"
-          aria-label={`Retirer ${city.name}`}
+          aria-label={t("cityAutocomplete.remove", { name: city.name })}
         >
           <X className="size-4" />
         </button>
@@ -193,7 +195,7 @@ export default function CityAutocomplete({ city, onChange }: CityAutocompletePro
             e.target.select();
           }}
           onKeyDown={handleKeyDown}
-          placeholder="Rechercher une ville (ex : Lisbonne, Kyoto...)"
+          placeholder={t("cityAutocomplete.placeholder")}
           className="w-full rounded-2xl border border-zinc-200 bg-white py-3 pl-10 pr-10 text-sm text-zinc-900 placeholder:text-zinc-400 outline-none transition focus:border-violet-400 focus:ring-4 focus:ring-violet-100 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:placeholder:text-zinc-500 dark:focus:border-violet-500 dark:focus:ring-violet-500/10"
         />
         {isLoading && (
@@ -204,7 +206,7 @@ export default function CityAutocomplete({ city, onChange }: CityAutocompletePro
       {isOpen && query.trim().length >= 2 && (
         <div className="absolute z-20 mt-2 w-full overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-xl shadow-black/5 dark:border-zinc-700 dark:bg-zinc-900">
           {results.length === 0 && !isLoading && (
-            <p className="px-4 py-3 text-sm text-zinc-500 dark:text-zinc-400">Aucune ville trouvée</p>
+            <p className="px-4 py-3 text-sm text-zinc-500 dark:text-zinc-400">{t("cityAutocomplete.noResults")}</p>
           )}
           {results.map((result, index) => (
             <button

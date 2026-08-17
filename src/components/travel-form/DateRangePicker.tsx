@@ -16,8 +16,8 @@ import {
   endOfWeek,
   subMonths,
 } from "date-fns";
-import { fr } from "date-fns/locale";
 import { Calendar, ChevronLeft, ChevronRight } from "lucide-react";
+import { useDateFnsLocale, useLanguage } from "@/lib/i18n/LanguageProvider";
 import type { DateRange } from "./types";
 
 interface DateRangePickerProps {
@@ -26,6 +26,8 @@ interface DateRangePickerProps {
 }
 
 export default function DateRangePicker({ value, onChange }: DateRangePickerProps) {
+  const { t } = useLanguage();
+  const dateLocale = useDateFnsLocale();
   const [isOpen, setIsOpen] = useState(false);
   const [visibleMonth, setVisibleMonth] = useState(value.from ?? new Date());
   const [hoverDate, setHoverDate] = useState<Date | null>(null);
@@ -63,7 +65,7 @@ export default function DateRangePicker({ value, onChange }: DateRangePickerProp
     return (
       <div className="w-full">
         <p className="mb-2 text-center text-sm font-semibold capitalize text-zinc-700 dark:text-zinc-200">
-          {format(monthDate, "MMMM yyyy", { locale: fr })}
+          {format(monthDate, "MMMM yyyy", { locale: dateLocale })}
         </p>
         <div className="grid grid-cols-7 gap-y-1 text-center">
           {["L", "M", "M", "J", "V", "S", "D"].map((d, i) => (
@@ -113,10 +115,10 @@ export default function DateRangePicker({ value, onChange }: DateRangePickerProp
 
   const label =
     value.from && value.to
-      ? `${format(value.from, "d MMM", { locale: fr })} – ${format(value.to, "d MMM yyyy", { locale: fr })}`
+      ? `${format(value.from, "d MMM", { locale: dateLocale })} – ${format(value.to, "d MMM yyyy", { locale: dateLocale })}`
       : value.from
-        ? `${format(value.from, "d MMM yyyy", { locale: fr })} – ?`
-        : "Sélectionner les dates";
+        ? `${format(value.from, "d MMM yyyy", { locale: dateLocale })} – ?`
+        : t("dateRangePicker.placeholder");
 
   return (
     <div ref={containerRef} className="relative w-full">
@@ -144,7 +146,7 @@ export default function DateRangePicker({ value, onChange }: DateRangePickerProp
               type="button"
               onClick={() => setVisibleMonth((m) => subMonths(m, 1))}
               className="rounded-full p-1.5 text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800"
-              aria-label="Mois précédent"
+              aria-label={t("dateRangePicker.prevMonth")}
             >
               <ChevronLeft className="size-4" />
             </button>
@@ -152,7 +154,7 @@ export default function DateRangePicker({ value, onChange }: DateRangePickerProp
               type="button"
               onClick={() => setVisibleMonth((m) => addMonths(m, 1))}
               className="rounded-full p-1.5 text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800"
-              aria-label="Mois suivant"
+              aria-label={t("dateRangePicker.nextMonth")}
             >
               <ChevronRight className="size-4" />
             </button>
@@ -169,7 +171,7 @@ export default function DateRangePicker({ value, onChange }: DateRangePickerProp
               onClick={() => onChange({ from: null, to: null })}
               className="text-xs font-medium text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200"
             >
-              Effacer
+              {t("dateRangePicker.clear")}
             </button>
             <button
               type="button"
@@ -177,7 +179,7 @@ export default function DateRangePicker({ value, onChange }: DateRangePickerProp
               onClick={() => setIsOpen(false)}
               className="rounded-full bg-violet-600 px-4 py-1.5 text-xs font-semibold text-white transition disabled:cursor-not-allowed disabled:opacity-40"
             >
-              Valider
+              {t("dateRangePicker.confirm")}
             </button>
           </div>
         </div>

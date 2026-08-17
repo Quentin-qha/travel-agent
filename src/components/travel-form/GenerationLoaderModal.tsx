@@ -2,30 +2,24 @@
 
 import { useEffect, useState } from "react";
 import { MapPin, Plane } from "lucide-react";
-
-const LOADING_STEPS = [
-  "Planification du séjour...",
-  "Recherche des meilleures adresses...",
-  "Analyse des avis et des lieux...",
-  "Organisation de l'itinéraire jour par jour...",
-  "Application sur la carte...",
-  "Derniers ajustements...",
-];
+import { useLanguage } from "@/lib/i18n/LanguageProvider";
 
 const STEP_INTERVAL_MS = 2400;
 
 export default function GenerationLoaderModal() {
+  const { tList } = useLanguage();
+  const loadingSteps = tList("generationLoader.steps");
   const [stepIndex, setStepIndex] = useState(0);
 
   useEffect(() => {
     const interval = setInterval(() => {
-      setStepIndex((i) => (i + 1) % LOADING_STEPS.length);
+      setStepIndex((i) => (i + 1) % loadingSteps.length);
     }, STEP_INTERVAL_MS);
     return () => clearInterval(interval);
-  }, []);
+  }, [loadingSteps.length]);
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col items-center justify-center gap-8 bg-white/90 backdrop-blur-sm dark:bg-zinc-950/90">
+    <div className="fixed inset-0 z-[9999] flex flex-col items-center justify-center gap-8 bg-white/90 backdrop-blur-sm dark:bg-zinc-950/90">
       <div className="relative flex size-28 items-center justify-center">
         <svg viewBox="0 0 100 100" className="absolute inset-0 size-full -rotate-90">
           <circle
@@ -56,7 +50,7 @@ export default function GenerationLoaderModal() {
         key={stepIndex}
         className="animate-fade-in text-sm font-medium text-zinc-600 dark:text-zinc-300"
       >
-        {LOADING_STEPS[stepIndex]}
+        {loadingSteps[stepIndex]}
       </p>
     </div>
   );
