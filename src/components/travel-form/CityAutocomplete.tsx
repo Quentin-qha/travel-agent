@@ -75,7 +75,11 @@ export default function CityAutocomplete({ city, onChange }: CityAutocompletePro
         const params = new URLSearchParams({
           format: "json",
           q: trimmed,
-          featuretype: "settlement",
+          // "settlement" (the previous value) still matches state/province-level boundary
+          // results — e.g. searching "Québec" surfaced the province (lat/lon of its huge,
+          // mostly-uninhabited centroid) ranked above the city. "city" restricts to the
+          // city-level part of the address hierarchy, excluding those.
+          featureType: "city",
           addressdetails: "1",
           limit: "6",
         });
