@@ -1,12 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
 
+import { API_URL } from "@/lib/apiUrl";
+
 // Same-origin API proxy now handles every state-changing call (see
 // src/app/api/itinerary/**), so the browser never needs to reach the FastAPI
 // backend directly except for the two remaining client-side fetches:
 // Nominatim (CityAutocomplete) and CARTO map tiles (img-src, loaded by
-// Leaflet as plain <img> elements, not fetch/XHR).
+// Leaflet as plain <img> elements, not fetch/XHR) — plus activity/restaurant/
+// destination photos, which the backend serves itself at /api/photo/... (see
+// backend/app/api/routes/photo.py) and are loaded as plain <img> too.
 const NOMINATIM_ORIGIN = "https://nominatim.openstreetmap.org";
 const CARTO_TILES_ORIGIN = "https://*.basemaps.cartocdn.com";
+const BACKEND_ORIGIN = new URL(API_URL).origin;
 
 export function proxy(request: NextRequest) {
   const nonce = Buffer.from(crypto.randomUUID()).toString("base64");
@@ -22,7 +27,7 @@ export function proxy(request: NextRequest) {
     // `style="..."` attributes (see ItineraryMap.tsx) — no nonce is
     // practical there, so style-src keeps 'unsafe-inline'.
     "style-src 'self' 'unsafe-inline'",
-    `img-src 'self' data: ${CARTO_TILES_ORIGIN}`,
+    `img-src 'self' data: ${CARTO_TILES_ORIGIN} ${BACKEND_ORIGIN}`,
     `connect-src 'self' ${NOMINATIM_ORIGIN}`,
     "font-src 'self'",
     "object-src 'none'",
