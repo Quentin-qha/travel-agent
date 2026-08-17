@@ -52,7 +52,7 @@ La carte (Leaflet, tuiles CARTO) est purement client-side — elle ne passe jama
 - `httpx` (appels à Google Geocoding)
 - `pydantic` / `pydantic-settings`
 
-**Base de données** : Supabase (projet nommé "Travel-planner", région `eu-west-2`), schéma dans `backend/supabase/migrations/0001_itinerary_schema.sql` + `0002_translation_tables.sql` + `0003_drop_translated_columns.sql` (voir section DB plus bas — le contenu texte a été extrait dans des tables de traduction dédiées).
+**Base de données** : Supabase (projet nommé "Travel-planner", région `eu-west-2`) — voir section DB plus bas pour le schéma réel (le contenu texte a été extrait dans des tables de traduction dédiées). Pas de fichiers de migration committés dans le repo (voir section DB pour le détail).
 
 **IA** : API Claude directement (pas Claude Code, pas Managed Agents) — un simple appel `messages.create/stream` avec l'outil serveur `web_search` et une sortie JSON structurée (`output_config.format`). Utilisée à la fois pour la génération initiale et pour les deux modes de régénération (voir plus bas).
 
@@ -112,10 +112,7 @@ travel-agent/
 │   ├── requirements.txt
 │   ├── Dockerfile
 │   ├── .env                      # Secrets (jamais commité — voir section env vars)
-│   └── supabase/migrations/
-│       ├── 0001_itinerary_schema.sql        # Schéma de base (tables itinerary/day_plan/activity/restaurant)
-│       ├── 0002_translation_tables.sql      # Ajoute itinerary_translations/activity_translations/restaurant_translations + backfill fr + rend nullable les anciennes colonnes texte
-│       └── 0003_drop_translated_columns.sql # Supprime les anciennes colonnes texte (destination_city/country, summary, name, description, category, cuisine) — DÉJÀ EXÉCUTÉE, ces colonnes n'existent plus
+│   └── supabase/migrations/       # ⚠️ VIDE — voir section DB plus bas, aucun fichier de migration n'est committé
 │
 ├── .env.local                    # NEXT_PUBLIC_API_URL (frontend)
 ├── AGENTS.md / CLAUDE.md         # Avertissement Next.js "breaking changes" — à lire avant de coder du Next.js
@@ -291,7 +288,7 @@ Toutes les routes acceptent désormais `lang: str = "fr"` en query param (FastAP
 
 ## Base de données (Supabase)
 
-7 tables, schéma dans `backend/supabase/migrations/0001_itinerary_schema.sql` + `0002_translation_tables.sql` + `0003_drop_translated_columns.sql` (documentation du schéma cible — à recoller manuellement dans le SQL Editor Supabase si la base doit être recréée ; **pas de CLI Supabase connecté, pas de migrations automatiques**, l'utilisateur applique lui-même chaque script SQL que je lui fournis). **Les 3 migrations ont déjà été exécutées** sur la base actuelle — le schéma ci-dessous est l'état réel, pas juste une cible.
+7 tables. ⚠️ **`backend/supabase/migrations/` est vide — aucun fichier `.sql` n'est committé dans le repo.** Le schéma a été construit et modifié au fil de l'eau à la main dans le SQL Editor Supabase (**pas de CLI Supabase connecté, pas de migrations automatiques**), sans jamais sauvegarder les scripts exécutés dans le repo. Le schéma documenté ci-dessous est l'état réel de la base (vérifié en direct), pas une reconstruction depuis des fichiers de migration — si la base doit être recréée un jour, il n'existe aujourd'hui aucune source de vérité versionnée pour ça, il faudra la reconstruire à la main depuis cette documentation.
 
 ```
 itinerary (id uuid pk, created_at,
@@ -314,11 +311,11 @@ itinerary (id uuid pk, created_at,
 
 **`itinerary`/`activity`/`restaurant` n'ont plus aucune colonne texte libre** — `destination_city`/`destination_country`/`summary`/`name`/`description`/`category`/`cuisine` ont tous été déplacés dans les tables `*_translations` correspondantes (une ligne par langue). Les FK sont `on delete cascade`, donc supprimer un `day_plan` nettoie automatiquement `activity`/`restaurant` **et** leurs traductions, sans code de nettoyage supplémentaire.
 
-⚠️ **Ne pas essayer de lire/écrire `destination_city`, `name`, `description`, etc. directement sur les tables de base** — ces colonnes n'existent plus depuis `0003_drop_translated_columns.sql`. Tout passe par `itinerary_translations`/`activity_translations`/`restaurant_translations` (voir `storage.py`).
+⚠️ **Ne pas essayer de lire/écrire `destination_city`, `name`, `description`, etc. directement sur les tables de base** — ces colonnes ont été supprimées des tables de base il y a longtemps (leur contenu vit désormais dans les tables `*_translations`). Tout passe par `itinerary_translations`/`activity_translations`/`restaurant_translations` (voir `storage.py`).
 
 **Pourquoi des tables de traduction séparées plutôt qu'une colonne par langue ou du JSONB** — voir "Décisions" #16.
 
-**Voyages générés avant ce chantier** : ont une ligne `locale='fr'` dans les tables de traduction (backfillée par `0002_translation_tables.sql` depuis les anciennes colonnes), mais **aucune ligne `en`** — pas de backfill EN décidé (voir "Ce qui n'est PAS encore fait"). Ils s'affichent en français même en mode EN, jusqu'à leur prochaine régénération.
+**Voyages générés avant ce chantier de traduction** : ont une ligne `locale='fr'` dans les tables de traduction (backfillée depuis les anciennes colonnes texte lors du passage au schéma actuel), mais **aucune ligne `en`** — pas de backfill EN décidé (voir "Ce qui n'est PAS encore fait"). Ils s'affichent en français même en mode EN, jusqu'à leur prochaine régénération.
 
 **Historique des colonnes `itinerary`** (pour comprendre pourquoi certains champs restent nullable) :
 - À l'origine, une seule colonne `destination_name` (texte combiné "Ville, Pays"). Renommée en `destination_country` puis complétée par une nouvelle colonne `destination_city` (nullable — les lignes créées avant ce changement n'ont pas de ville séparée) — ces deux colonnes vivent maintenant dans `itinerary_translations`.

@@ -1,6 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
+import Image from "next/image";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { format, parseISO } from "date-fns";
 import {
@@ -18,8 +19,8 @@ import {
 } from "lucide-react";
 import { useDateFnsLocale, useLanguage } from "@/lib/i18n/LanguageProvider";
 import { translateTripType } from "@/lib/i18n/tripTypeLabels";
-import { getEditTokenCookie } from "@/lib/editToken";
 import GenerationLoaderModal from "./GenerationLoaderModal";
+import PlaceCardContent from "./PlaceCardContent";
 import {
   formatDestination,
   type ItineraryActivity,
@@ -28,8 +29,6 @@ import {
   type ItineraryViewData,
 } from "./types";
 import type { MapPoint } from "./ItineraryMap";
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
 function MapLoadingFallback() {
   const { t } = useLanguage();
@@ -212,13 +211,11 @@ export default function ItineraryMapView({ itineraryId, itinerary: initialItiner
     setRegenError(null);
 
     try {
-      const editToken = getEditTokenCookie(itineraryId);
-      const response = await fetch(`${API_URL}/api/itinerary/${itineraryId}/regenerate?lang=${locale}`, {
+      // The edit token is attached server-side by this route handler, read
+      // from its HttpOnly cookie — the client never touches it.
+      const response = await fetch(`/api/itinerary/${itineraryId}/regenerate?lang=${locale}`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...(editToken ? { "X-Edit-Token": editToken } : {}),
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ itemKeys: Array.from(selectedForRegen) }),
       });
 
@@ -278,10 +275,15 @@ export default function ItineraryMapView({ itineraryId, itinerary: initialItiner
           )}
 
           <div className="flex items-start justify-between gap-3">
-            <p className="text-3xl font-semibold">
-              {t("itineraryMap.yourTripTo")}{" "}
-              <b className="text-bold">{formatDestination(itinerary.destination_city, itinerary.destination_country)}</b>
-            </p>
+            <div className="flex flex-wrap items-center">
+              <p className="text-3xl font-semibold">
+                {t("itineraryMap.yourTripTo")}{" "}
+                <b className="text-bold">{formatDestination(itinerary.destination_city, itinerary.destination_country)}</b>
+              </p>
+              <span className="mb-2 shrink-0 whitespace-nowrap text-sm text-zinc-600 dark:text-zinc-500">
+                {itinerary.days.length} {itinerary.days.length > 1 ? t("common.days") : t("common.day")}
+              </span>
+            </div>
 
             {!isEditing && (
               <div className="flex shrink-0 items-center gap-1">
@@ -326,12 +328,15 @@ export default function ItineraryMapView({ itineraryId, itinerary: initialItiner
             <p className="text-sm text-zinc-500 dark:text-zinc-400">{itinerary.summary}</p>
 
             {itinerary.image_url && (
-              // eslint-disable-next-line @next/next/no-img-element -- external Google Places URL, not a local/optimizable asset.
-              <img
-                src={itinerary.image_url}
-                alt={formatDestination(itinerary.destination_city, itinerary.destination_country)}
-                className="mt-3 aspect-video w-full rounded-xl object-cover"
-              />
+              <div className="relative mt-3 aspect-video w-full overflow-hidden rounded-xl">
+                <Image
+                  src={itinerary.image_url}
+                  alt={formatDestination(itinerary.destination_city, itinerary.destination_country)}
+                  fill
+                  sizes="(min-width: 1024px) 420px, 100vw"
+                  className="object-cover"
+                />
+              </div>
             )}
 
             {regenError && (
@@ -557,20 +562,7 @@ function SidebarCard({
           className="mt-1 size-4 shrink-0 accent-violet-600"
         />
       )}
-      <Icon className={`mt-0.5 size-4 shrink-0 ${iconColor}`} strokeWidth={2.25} />
-      <div className="min-w-0 flex-1">
-        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-          <span className="text-sm font-medium text-zinc-800 dark:text-zinc-100">{place.name}</span>
-          <span className="rounded-full bg-violet-100 px-2 py-0.5 text-xs font-semibold text-violet-700 dark:bg-violet-500/15 dark:text-violet-300">
-            {place.budget_level}
-          </span>
-        </div>
-        <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">{place.description}</p>
-        <span className="mt-1.5 inline-flex items-center gap-1 text-xs text-zinc-400 dark:text-zinc-500">
-          <DetailIcon className="size-3.5" />
-          {detail}
-        </span>
-      </div>
+      <PlaceCardContent icon={Icon} iconColor={iconColor} place={place} detail={detail} detailIcon={DetailIcon} />
     </div>
   );
 }

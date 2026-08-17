@@ -9,6 +9,12 @@ const fr = {
     day: "jour",
     days: "jours",
   },
+  errorPage: {
+    title: "Une erreur est survenue",
+    description: "Le service est peut-être temporairement indisponible. Réessaie dans un instant.",
+    retry: "Réessayer",
+    home: "Retour à l'accueil",
+  },
   travelFormPage: {
     title: "Planifie ton voyage",
     greeting: "Salut {name}, planifie ton voyage",
@@ -140,6 +146,12 @@ const en: typeof fr = {
     },
     day: "day",
     days: "days",
+  },
+  errorPage: {
+    title: "Something went wrong",
+    description: "The service may be temporarily unavailable. Please try again in a moment.",
+    retry: "Try again",
+    home: "Back to home",
   },
   travelFormPage: {
     title: "Let's plan your trip",

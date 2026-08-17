@@ -61,9 +61,6 @@ export interface ItineraryResult {
   trip_types: string[];
   days: ItineraryDay[];
   image_url: string | null;
-  // Only present right after creation — the creator's browser stores it in a
-  // cookie and never receives it again.
-  edit_token?: string | null;
 }
 
 export interface ItineraryViewData {
@@ -86,6 +83,57 @@ export interface ItinerarySummary {
   trip_types: string[];
   day_count: number;
   created_at: string;
+}
+
+function isNullableString(value: unknown): value is string | null {
+  return value === null || typeof value === "string";
+}
+
+function isItineraryDay(value: unknown): value is ItineraryDay {
+  if (!value || typeof value !== "object") return false;
+  const v = value as Record<string, unknown>;
+  return (
+    typeof v.day_number === "number" &&
+    typeof v.date === "string" &&
+    Array.isArray(v.activities) &&
+    Array.isArray(v.restaurants)
+  );
+}
+
+// Guards the two spots where a Server Component trusts an untyped
+// `response.json()` from the backend (src/app/[id]/page.tsx,
+// src/app/library/page.tsx). The backend schema is still actively changing —
+// this catches a shape mismatch as a clear error instead of a broken render.
+export function isItineraryViewData(value: unknown): value is ItineraryViewData {
+  if (!value || typeof value !== "object") return false;
+  const v = value as Record<string, unknown>;
+  return (
+    isNullableString(v.destination_city) &&
+    typeof v.destination_country === "string" &&
+    typeof v.summary === "string" &&
+    Array.isArray(v.trip_types) &&
+    Array.isArray(v.days) &&
+    v.days.every(isItineraryDay) &&
+    isNullableString(v.image_url) &&
+    typeof v.can_edit === "boolean"
+  );
+}
+
+export function isItinerarySummaryList(value: unknown): value is ItinerarySummary[] {
+  if (!Array.isArray(value)) return false;
+  return value.every((item) => {
+    if (!item || typeof item !== "object") return false;
+    const v = item as Record<string, unknown>;
+    return (
+      typeof v.id === "string" &&
+      isNullableString(v.destination_city) &&
+      typeof v.destination_country === "string" &&
+      typeof v.summary === "string" &&
+      Array.isArray(v.trip_types) &&
+      typeof v.day_count === "number" &&
+      typeof v.created_at === "string"
+    );
+  });
 }
 
 export function formatDestination(city: string | null, country: string): string {

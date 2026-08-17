@@ -33,6 +33,11 @@ export default function DayRangeSlider({ min, max, value, onChange }: DayRangeSl
           max={max}
           value={lo}
           onChange={(e) => onChange([Math.min(Number(e.target.value), hi), hi])}
+          // When both handles sit on the same value, bump this one above the
+          // max handle so it stays grabbable instead of being permanently
+          // hidden underneath — once dragged apart, the max handle (z-index
+          // 4) resumes taking priority at the shared boundary as expected.
+          style={{ zIndex: lo === hi ? 5 : 3 }}
           className="dual-range-thumb absolute inset-0 w-full appearance-none bg-transparent"
           aria-label={t("library.dayFilter.ariaMin")}
         />
@@ -42,6 +47,7 @@ export default function DayRangeSlider({ min, max, value, onChange }: DayRangeSl
           max={max}
           value={hi}
           onChange={(e) => onChange([lo, Math.max(Number(e.target.value), lo)])}
+          style={{ zIndex: 4 }}
           className="dual-range-thumb absolute inset-0 w-full appearance-none bg-transparent"
           aria-label={t("library.dayFilter.ariaMax")}
         />

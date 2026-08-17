@@ -2,6 +2,7 @@
 
 import "leaflet/dist/leaflet.css";
 import L from "leaflet";
+import Image from "next/image";
 import { useEffect, useRef, useState } from "react";
 import { MapContainer, TileLayer, Marker, Popup, ZoomControl, useMap } from "react-leaflet";
 import { MapPin, UtensilsCrossed } from "lucide-react";
@@ -115,8 +116,9 @@ function PlacePopupContent({ point }: { point: MapPoint }) {
   return (
     <div className="min-w-[190px]">
       {point.imageUrl && (
-        // eslint-disable-next-line @next/next/no-img-element -- external Google Places URL, not a local/optimizable asset.
-        <img src={point.imageUrl} alt={point.name} className="mb-2 aspect-video w-full rounded-lg object-cover" />
+        <div className="relative mb-2 aspect-video w-full overflow-hidden rounded-lg">
+          <Image src={point.imageUrl} alt={point.name} fill sizes="190px" className="object-cover" />
+        </div>
       )}
       <div className="flex items-center gap-1.5 text-sm font-semibold text-zinc-800">
         {point.kind === "restaurant" ? (

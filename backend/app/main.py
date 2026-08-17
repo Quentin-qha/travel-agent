@@ -1,8 +1,16 @@
+from contextlib import asynccontextmanager
+
+import anyio
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
 
 from app.api.routes.itinerary import router as itinerary_router
+from app.api.routes.photo import router as photo_router
 from app.core.config import settings
+from app.core.limiter import limiter
 
 DESCRIPTION = """
 Generates a day-by-day travel plan (activities + restaurants, budget and GPS
@@ -28,6 +36,12 @@ invalid one, regeneration fails with `403`. Reading an itinerary
 boolean in response (never the token itself) — a shared link stays readable
 without the token, just not editable.
 
+## Rate limiting
+
+`POST /api/itinerary` is rate-limited per IP (5/minute, 20/hour) — it triggers a paid
+Claude + Google Geocoding pipeline with no other access control. Exceeding it returns
+`429` with a JSON `{"error": "..."}` body.
+
 ## Activity/restaurant identifiers
 
 Each activity/restaurant is identified by a key
@@ -47,10 +61,27 @@ TAGS_METADATA = [
         ),
     },
     {
+        "name": "photo",
+        "description": (
+            "Server-side proxy for Google Places photos, so the Google API key never "
+            "reaches the client — see the `image_url` fields under the `itinerary` tag."
+        ),
+    },
+    {
         "name": "health",
         "description": "Simple check that the server is responding.",
     },
 ]
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Sync `def` routes run in anyio's worker threadpool (default cap: 40). Generation/
+    # regeneration hold a thread for a long time (Claude + several sequential Google calls),
+    # so the default cap saturates under modest concurrent load — raised here. See the note
+    # on settings.thread_pool_size for why this is a mitigation, not a full fix.
+    anyio.to_thread.current_default_thread_limiter().total_tokens = settings.thread_pool_size
+    yield
+
 
 app = FastAPI(
     title="Travel Agent API",
@@ -58,7 +89,12 @@ app = FastAPI(
     version="1.0.0",
     openapi_tags=TAGS_METADATA,
     contact={"name": "@quentinHaentjens", "url": "https://github.com/Quentin-qha"},
+    lifespan=lifespan,
 )
+
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+app.add_middleware(SlowAPIMiddleware)
 
 app.add_middleware(
     CORSMiddleware,
@@ -68,6 +104,7 @@ app.add_middleware(
 )
 
 app.include_router(itinerary_router, prefix="/api")
+app.include_router(photo_router, prefix="/api")
 
 
 @app.get(

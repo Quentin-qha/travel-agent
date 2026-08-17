@@ -3,14 +3,12 @@
 import { createContext, useCallback, useContext, useEffect, useSyncExternalStore, type ReactNode } from "react";
 import { enUS, fr as frLocale } from "date-fns/locale";
 import { TRANSLATIONS, type Locale } from "./translations";
+import { LOCALE_COOKIE_NAME } from "./cookieName";
 
-// Must match LOCALE_COOKIE in ./locale.ts — duplicated because that module
-// imports next/headers (server-only) and can't be pulled into this client bundle.
-const COOKIE_NAME = "travel-agent-locale";
 const LOCALE_CHANGE_EVENT = "travel-agent-locale-change";
 
 function readCookieLocale(): Locale {
-  const match = document.cookie.match(new RegExp(`(?:^|; )${COOKIE_NAME}=([^;]*)`));
+  const match = document.cookie.match(new RegExp(`(?:^|; )${LOCALE_COOKIE_NAME}=([^;]*)`));
   const value = match ? decodeURIComponent(match[1]) : null;
   return value === "fr" || value === "en" ? value : "fr";
 }
@@ -63,7 +61,7 @@ export function LanguageProvider({ children }: { children: ReactNode }) {
 
   const setLocale = useCallback((next: Locale) => {
     // 1 year, readable by both client (document.cookie) and Server Components (next/headers).
-    document.cookie = `${COOKIE_NAME}=${next}; path=/; max-age=31536000; samesite=lax`;
+    document.cookie = `${LOCALE_COOKIE_NAME}=${next}; path=/; max-age=31536000; samesite=lax`;
     window.dispatchEvent(new Event(LOCALE_CHANGE_EVENT));
   }, []);
 

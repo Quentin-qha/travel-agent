@@ -1,10 +1,10 @@
 import { notFound } from "next/navigation";
 import ItineraryMapView from "@/components/travel-form/ItineraryMapView";
 import TravelFormPage from "@/components/travel-form/TravelFormPage";
+import { isItineraryViewData } from "@/components/travel-form/types";
 import { getServerLocale } from "@/lib/i18n/locale";
 import { getServerEditToken } from "@/lib/editTokenServer";
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+import { API_URL } from "@/lib/apiUrl";
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -31,6 +31,9 @@ export default async function CatchAllPage(props: PageProps<"/[id]">) {
   }
 
   const itinerary = await response.json();
+  if (!isItineraryViewData(itinerary)) {
+    throw new Error("Réponse de l'API invalide pour cet itinéraire.");
+  }
 
   // Forces a clean remount on language change — drops any local edit-mode
   // state, which is correct since the underlying content just changed language.

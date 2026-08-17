@@ -8,6 +8,7 @@ import httpx
 from anthropic import Anthropic
 
 from app.core.config import settings
+from app.core.redact import redact_api_key
 from app.schemas.itinerary import (
     Activity,
     ActivityContent,
@@ -41,12 +42,17 @@ client = Anthropic(api_key=settings.anthropic_api_key)
 GOOGLE_GEOCODING_URL = "https://maps.googleapis.com/maps/api/geocode/json"
 GOOGLE_FIND_PLACE_URL = "https://maps.googleapis.com/maps/api/place/findplacefromtext/json"
 GOOGLE_PLACE_DETAILS_URL = "https://maps.googleapis.com/maps/api/place/details/json"
-GOOGLE_PLACE_PHOTO_URL = "https://maps.googleapis.com/maps/api/place/photo"
+# The Photo endpoint itself (GOOGLE_PLACE_PHOTO_URL) is only ever called from
+# api/routes/photo.py — see the security note on _fetch_place_photo_url below.
 
 # Enforced after geocoding (not just requested in the prompt) — the model's web
 # search sometimes surfaces a reputable but distant excursion/landmark, so this
 # is a hard backstop rather than a suggestion it can quietly ignore.
 MAX_PLACE_DISTANCE_KM = 10.0
+
+# Standard bound on the server-side web_search auto-resume loop in _run_to_completion —
+# without it, a model stuck repeatedly returning pause_turn could loop indefinitely.
+MAX_PAUSE_TURN_RETRIES = 5
 
 RESPONSE_SCHEMA = ItineraryResponse.model_json_schema()
 DAY_ITEMS_RESPONSE_SCHEMA = DayItemsResponse.model_json_schema()
@@ -206,8 +212,15 @@ def _run_to_completion(messages: list[dict], schema: dict = RESPONSE_SCHEMA, use
     response = _run(messages, schema, use_search)
 
     # The server-side web_search loop pauses after its default iteration cap;
-    # resending the assistant turn resumes it automatically.
+    # resending the assistant turn resumes it automatically. Capped so a model stuck
+    # repeatedly pausing can't loop forever, burning cost and holding the request open.
+    pause_turns = 0
     while response.stop_reason == "pause_turn":
+        pause_turns += 1
+        if pause_turns > MAX_PAUSE_TURN_RETRIES:
+            raise RuntimeError(
+                "La génération a dépassé le nombre maximal de reprises de recherche web — réessaie."
+            )
         messages.append({"role": "assistant", "content": response.content})
         response = _run(messages, schema, use_search)
 
@@ -231,7 +244,7 @@ def _geocode_once(query: str) -> tuple[float, float, str | None] | None:
         resp.raise_for_status()
         data = resp.json()
     except (httpx.HTTPError, ValueError) as exc:
-        logger.warning("Geocoding request failed for %r: %s", query, exc)
+        logger.warning("Geocoding request failed for %r: %s", query, redact_api_key(str(exc)))
         return None
     if data.get("status") != "OK" or not data.get("results"):
         logger.warning(
@@ -282,7 +295,7 @@ def _find_place(query: str) -> tuple[float, float, str | None] | None:
         resp.raise_for_status()
         data = resp.json()
     except (httpx.HTTPError, ValueError) as exc:
-        logger.warning("Find place request failed for %r: %s", query, exc)
+        logger.warning("Find place request failed for %r: %s", query, redact_api_key(str(exc)))
         return None
     if data.get("status") != "OK":
         return None
@@ -299,7 +312,14 @@ def _find_place(query: str) -> tuple[float, float, str | None] | None:
 
 def _fetch_place_photo_url(place_id: str) -> str | None:
     """First Google Places photo for a place_id already resolved via geocoding —
-    no separate Places text search needed, just one Place Details lookup."""
+    no separate Places text search needed, just one Place Details lookup.
+
+    SECURITY: never build a raw Google Photo URL here (it would require embedding
+    google_location_api_key as a query param, which then gets stored in the DB and
+    handed to every API client verbatim — the key was leaking this way until this
+    was fixed). Only the `photo_reference` leaves this request; fetching the actual
+    image with the key happens server-side only, in api/routes/photo.py.
+    """
     try:
         resp = httpx.get(
             GOOGLE_PLACE_DETAILS_URL,
@@ -309,7 +329,7 @@ def _fetch_place_photo_url(place_id: str) -> str | None:
         resp.raise_for_status()
         data = resp.json()
     except (httpx.HTTPError, ValueError) as exc:
-        logger.warning("Place details request failed for %r: %s", place_id, exc)
+        logger.warning("Place details request failed for %r: %s", place_id, redact_api_key(str(exc)))
         return None
     if data.get("status") != "OK":
         logger.warning("Place details failed for %r: status=%s", place_id, data.get("status"))
@@ -318,10 +338,7 @@ def _fetch_place_photo_url(place_id: str) -> str | None:
     photo_reference = photos[0].get("photo_reference") if photos else None
     if not photo_reference:
         return None
-    return (
-        f"{GOOGLE_PLACE_PHOTO_URL}?maxwidth=800&photo_reference={photo_reference}"
-        f"&key={settings.google_location_api_key}"
-    )
+    return f"{settings.api_base_url}/api/photo/{photo_reference}"
 
 
 def _geocode_place(destination: str, place: Activity | Restaurant) -> None:

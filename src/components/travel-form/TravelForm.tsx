@@ -15,10 +15,7 @@ import SummaryStep from "./SummaryStep";
 import ItineraryResultView from "./ItineraryResultView";
 import GenerationLoaderModal from "./GenerationLoaderModal";
 import { useLanguage } from "@/lib/i18n/LanguageProvider";
-import { setEditTokenCookie } from "@/lib/editToken";
 import { INITIAL_FORM_DATA, isStepValid, STEPS, type ItineraryResult, type TravelFormData } from "./types";
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
 export default function TravelForm() {
   const router = useRouter();
@@ -52,7 +49,7 @@ export default function TravelForm() {
       setError(null);
 
       try {
-        const response = await fetch(`${API_URL}/api/itinerary?lang=${locale}`, {
+        const response = await fetch(`/api/itinerary?lang=${locale}`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -75,9 +72,8 @@ export default function TravelForm() {
         const result: ItineraryResult = await response.json();
 
         if (result.id) {
-          if (result.edit_token) {
-            setEditTokenCookie(result.id, result.edit_token);
-          }
+          // The edit token (if any) was already set as an HttpOnly cookie by
+          // the /api/itinerary route handler — nothing to do with it here.
           // Keep the loader visible until the new page takes over.
           router.push(`/${result.id}`);
           return;
