@@ -17,6 +17,13 @@ import GenerationLoaderModal from "./GenerationLoaderModal";
 import { useLanguage } from "@/lib/i18n/LanguageProvider";
 import { INITIAL_FORM_DATA, isStepValid, STEPS, type ItineraryResult, type TravelFormData } from "./types";
 
+/**
+ * The 3-step trip creation form (destination/dates/travelers -> vibes -> summary), used on
+ * both "/" and "/[name]" (unnamed visitor). Submitting the last step posts to `/api/itinerary`
+ * (the Next.js proxy route, not the backend directly) and either redirects to the new trip's
+ * permanent `/{id}` page, or — if the backend couldn't persist it (Supabase down) — falls back
+ * to an inline, non-shareable result via `ItineraryResultView`.
+ */
 export default function TravelForm() {
   const router = useRouter();
   const { t, locale } = useLanguage();
@@ -39,6 +46,9 @@ export default function TravelForm() {
     setCurrentStep((prev) => Math.max(1, prev - 1));
   }
 
+  /** Advances to the next step, or — on the last step — submits the form and generates the
+   * trip. Kept as a single handler (rather than splitting "submit") since the footer's
+   * "Next"/"Generate" button is the same element throughout the flow. */
   async function handleNext() {
     if (!isNextEnabled) return;
 

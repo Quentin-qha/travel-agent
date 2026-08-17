@@ -26,6 +26,7 @@ function subscribe(callback: () => void) {
   return () => window.removeEventListener(LOCALE_CHANGE_EVENT, callback);
 }
 
+/** Looks up a dot-separated path (e.g. `"generationLoader.steps"`) inside a translations object. */
 function resolvePath(source: unknown, key: string): unknown {
   return key.split(".").reduce<unknown>((node, part) => {
     if (node && typeof node === "object" && part in node) {
@@ -35,6 +36,7 @@ function resolvePath(source: unknown, key: string): unknown {
   }, source);
 }
 
+/** Replaces `{name}` placeholders in `template` with values from `vars`; leaves unmatched placeholders as-is. */
 function interpolate(template: string, vars?: Record<string, string | number>): string {
   if (!vars) return template;
   return template.replace(/\{(\w+)\}/g, (match, name) => {
@@ -52,6 +54,12 @@ interface LanguageContextValue {
 
 const LanguageContext = createContext<LanguageContextValue | null>(null);
 
+/**
+ * Mounts once in `layout.tsx`, wrapping the whole app. Provides `locale`/`setLocale`/`t`/`tList`
+ * to any descendant via `useLanguage()`. The locale itself lives in the `travel-agent-locale`
+ * cookie (not React state) so it survives navigation and stays readable server-side — this
+ * component just subscribes to that cookie via `useSyncExternalStore` and re-renders on change.
+ */
 export function LanguageProvider({ children }: { children: ReactNode }) {
   const locale = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
 
@@ -84,12 +92,21 @@ export function LanguageProvider({ children }: { children: ReactNode }) {
   return <LanguageContext.Provider value={{ locale, setLocale, t, tList }}>{children}</LanguageContext.Provider>;
 }
 
+/**
+ * Access to the current locale and translation helpers. Must be called from a Client Component
+ * rendered under `<LanguageProvider>` (i.e. anywhere in the app) — throws otherwise.
+ *
+ * - `t(key, vars?)` — resolves a dot-path key (e.g. `t("form.title")`) to a translated string,
+ *   interpolating `{placeholders}` from `vars`. Returns the key itself if not found.
+ * - `tList(key)` — same lookup, for keys whose value is a string array (e.g. rotating loader messages).
+ */
 export function useLanguage(): LanguageContextValue {
   const ctx = useContext(LanguageContext);
   if (!ctx) throw new Error("useLanguage must be used within a LanguageProvider");
   return ctx;
 }
 
+/** The date-fns locale object (`fr` or `enUS`) matching the current UI language, for date formatting. */
 export function useDateFnsLocale() {
   const { locale } = useLanguage();
   return locale === "en" ? enUS : frLocale;

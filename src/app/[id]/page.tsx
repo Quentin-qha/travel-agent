@@ -8,6 +8,15 @@ import { API_URL } from "@/lib/apiUrl";
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+/**
+ * Catch-all route for any single path segment. Two very different pages share this file
+ * depending on whether the segment is a trip UUID:
+ * - UUID -> fetches the trip server-side (with the edit-token cookie, if any, forwarded as
+ *   `X-Edit-Token`) and renders the full `ItineraryMapView` detail page. 404s via `notFound()`
+ *   if the backend doesn't have that id.
+ * - anything else (e.g. `/quentin`) -> treated as a visitor's name and renders `TravelFormPage`
+ *   with a personalized greeting, not an error.
+ */
 export default async function CatchAllPage(props: PageProps<"/[id]">) {
   const { id } = await props.params;
 

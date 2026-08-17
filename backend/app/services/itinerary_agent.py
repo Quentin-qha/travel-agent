@@ -73,6 +73,11 @@ MODELS_WITH_ADAPTIVE_FEATURES = {
 
 
 def _build_prompt(request: ItineraryRequest) -> str:
+    """Builds the full generation prompt for a brand-new itinerary (used by both
+    `generate_itinerary` and `_regenerate_full`, which just rebuild the same
+    request from stored context). Always written in French — Claude is asked to
+    generate French content regardless of the `lang` the caller wants back;
+    translation to English happens afterwards as a separate step."""
     trip_types = ", ".join(request.trip_types) if request.trip_types else "aucune préférence particulière"
     day_count = (request.date_range.to_date - request.date_range.from_date).days + 1
     day_dates = "\n".join(
@@ -134,6 +139,11 @@ def _build_partial_prompt(
     activities_to_add: int,
     restaurants_to_add: int,
 ) -> str:
+    """Builds the prompt for replacing specific items within one existing day
+    (used by `_regenerate_partial` when at least one item on a day is checked,
+    but not the whole day). Lists what's being kept so Claude stays geographically
+    and time-budget consistent with it, and asks for exactly `activities_to_add` +
+    `restaurants_to_add` new items — no more, no fewer."""
     city_label = context.destination_city or context.destination_country
     trip_types = ", ".join(context.trip_types) if context.trip_types else "aucune préférence particulière"
 
@@ -212,6 +222,11 @@ def _build_full_day_prompt(context: ItineraryContext, day_date: date) -> str:
 
 
 def _request_params(messages: list[dict], schema: dict, use_search: bool = True) -> dict:
+    """Assembles the kwargs for `client.messages.stream(...)`. Picks the right
+    `web_search` tool version and enables `thinking`/`effort` only when
+    `settings.claude_model` is in `MODELS_WITH_ADAPTIVE_FEATURES` — lighter models
+    (e.g. Haiku) error out if these params are sent. `use_search=False` (translation
+    calls) omits the tool entirely since there's nothing to look up."""
     model = settings.claude_model
     supports_adaptive = model in MODELS_WITH_ADAPTIVE_FEATURES
 
@@ -239,12 +254,20 @@ def _request_params(messages: list[dict], schema: dict, use_search: bool = True)
 
 
 def _run(messages: list[dict], schema: dict, use_search: bool = True):
-    # Streaming avoids SDK HTTP timeouts at this max_tokens size.
+    """One Claude call, streamed to completion. Streaming avoids SDK HTTP timeouts
+    at this max_tokens size — the response itself isn't consumed incrementally,
+    just collected via `get_final_message()`."""
     with client.messages.stream(**_request_params(messages, schema, use_search)) as stream:
         return stream.get_final_message()
 
 
 def _run_to_completion(messages: list[dict], schema: dict = RESPONSE_SCHEMA, use_search: bool = True):
+    """Entry point every Claude call in this module goes through. Wraps `_run`
+    and additionally: auto-resumes the conversation while the server-side
+    `web_search` tool pauses (`stop_reason == "pause_turn"`), and raises a clear
+    `RuntimeError` on refusal/truncation instead of returning a response the
+    caller would have to defensively check. `messages` is mutated in place when
+    resuming a pause — pass a list you don't need untouched afterwards."""
     response = _run(messages, schema, use_search)
 
     # The server-side web_search loop pauses after its default iteration cap;
@@ -271,6 +294,10 @@ def _run_to_completion(messages: list[dict], schema: dict = RESPONSE_SCHEMA, use
 
 
 def _geocode_once(query: str) -> tuple[float, float, str | None] | None:
+    """Single Google Geocoding API call for a free-text address/place query.
+    Returns `(lat, lon, place_id)`, or `None` on any failure (network error,
+    non-OK status, unexpected response shape) — never raises. Called through
+    `_geocode`, which adds a retry; don't call this directly outside that."""
     try:
         resp = httpx.get(
             GOOGLE_GEOCODING_URL,
@@ -300,9 +327,11 @@ def _geocode_once(query: str) -> tuple[float, float, str | None] | None:
 
 
 def _geocode(query: str, retries: int = 1) -> tuple[float, float, str | None] | None:
-    # Google API key restriction changes can take a few minutes to fully
-    # propagate, causing sporadic REQUEST_DENIED on an otherwise-working key.
-    # A short retry absorbs that kind of transient failure.
+    """Geocodes a free-text query via `_geocode_once`, retrying once on failure.
+    Google API key restriction changes can take a few minutes to fully propagate,
+    causing sporadic REQUEST_DENIED on an otherwise-working key — a short retry
+    absorbs that kind of transient failure. Prefer `_find_place` for a named venue
+    (restaurant, landmark); use this for plain addresses/city names."""
     for attempt in range(retries + 1):
         result = _geocode_once(query)
         if result is not None:
@@ -378,6 +407,13 @@ def _fetch_place_photo_url(place_id: str) -> str | None:
 
 
 def _geocode_place(destination: str, place: Activity | Restaurant) -> None:
+    """Geocodes and photo-fetches a single activity/restaurant in place, mutating
+    `place.lat`/`place.lon`/`place.image_url` directly. Tries `_find_place`
+    (name-based, more accurate for named venues) first, falling back to
+    `_geocode` on `location_query` if that fails. Silently leaves the place
+    ungeocoded (fields stay `None`) if both fail — never raises. Called once per
+    place during full generation/regeneration, and again per new item during a
+    partial regeneration."""
     result = _find_place(f"{place.name}, {destination}") or _geocode(f"{place.location_query}, {destination}")
     if result is None:
         return
@@ -387,6 +423,7 @@ def _geocode_place(destination: str, place: Activity | Restaurant) -> None:
 
 
 def _haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    """Great-circle distance in kilometers between two lat/lon points."""
     earth_radius_km = 6371.0
     p1, p2 = radians(lat1), radians(lat2)
     dphi = radians(lat2 - lat1)
@@ -396,6 +433,8 @@ def _haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
 
 
 def _is_within_range(place: Activity | Restaurant, origin_lat: float, origin_lon: float) -> bool:
+    """Whether a geocoded place is within `MAX_PLACE_DISTANCE_KM` of the trip's
+    origin point (the destination city's own coordinates)."""
     if place.lat is None or place.lon is None:
         return True  # Ungeocoded — nothing to judge distance against, let it through.
     return _haversine_km(origin_lat, origin_lon, place.lat, place.lon) <= MAX_PLACE_DISTANCE_KM
@@ -404,6 +443,10 @@ def _is_within_range(place: Activity | Restaurant, origin_lat: float, origin_lon
 def _filter_by_distance(
     activities: list[Activity], restaurants: list[Restaurant], origin_lat: float, origin_lon: float
 ) -> tuple[list[Activity], list[Restaurant]]:
+    """Drops any activity/restaurant further than `MAX_PLACE_DISTANCE_KM` from
+    the given origin — the hard backstop behind the prompt's distance rule, for
+    cases where the model includes a distant excursion/landmark despite being
+    asked not to. Logs how many places were dropped, if any."""
     kept_activities = [a for a in activities if _is_within_range(a, origin_lat, origin_lon)]
     kept_restaurants = [r for r in restaurants if _is_within_range(r, origin_lat, origin_lon)]
     dropped = (len(activities) - len(kept_activities)) + (len(restaurants) - len(kept_restaurants))
@@ -413,6 +456,10 @@ def _filter_by_distance(
 
 
 def _geocode_itinerary(destination: str, itinerary: ItineraryResponse, origin_lat: float, origin_lon: float) -> None:
+    """Geocodes every activity/restaurant in a freshly generated itinerary
+    (mutates them in place via `_geocode_place`), then drops anything that ends
+    up too far from `origin_lat`/`origin_lon`. Called once after full generation
+    or full regeneration — partial regeneration geocodes/filters per-day instead."""
     for day in itinerary.days:
         for activity in day.activities:
             _geocode_place(destination, activity)
@@ -424,6 +471,9 @@ def _geocode_itinerary(destination: str, itinerary: ItineraryResponse, origin_la
 
 
 def _fetch_destination_image(city_label: str) -> str | None:
+    """Fetches a cover photo URL (proxied, see `_fetch_place_photo_url`) for the
+    trip's destination city itself — used to set `itinerary.image_url`, separate
+    from per-activity/restaurant photos."""
     result = _geocode(city_label)
     if result is None:
         return None
@@ -432,6 +482,11 @@ def _fetch_destination_image(city_label: str) -> str | None:
 
 
 def _build_translation_prompt(payload: dict) -> str:
+    """Builds the FR→EN translation prompt for the given payload (either a whole
+    itinerary from `_itinerary_translation_payload`, or a single day from
+    `_day_translation_payload`). Explicitly instructs Claude to preserve the exact
+    item counts/order — the result is merged back in by position, not matched by
+    content, so any drift here would silently misalign translations."""
     return (
         "Traduis ce contenu de voyage du français vers l'anglais, en gardant EXACTEMENT la même "
         "structure : même nombre de jours, même nombre d'activités et de restaurants par jour, "
@@ -445,6 +500,8 @@ def _build_translation_prompt(payload: dict) -> str:
 
 
 def _itinerary_translation_payload(itinerary: ItineraryResponse) -> dict:
+    """Strips a full `ItineraryResponse` down to just the translatable text
+    fields, for `_build_translation_prompt`."""
     return {
         "destination_city": itinerary.destination_city,
         "destination_country": itinerary.destination_country,
@@ -454,6 +511,9 @@ def _itinerary_translation_payload(itinerary: ItineraryResponse) -> dict:
 
 
 def _day_translation_payload(activities: list[Activity], restaurants: list[Restaurant]) -> dict:
+    """Same as `_itinerary_translation_payload` but scoped to one day's items —
+    used both for the whole-itinerary translation (per day) and for translating
+    just the new items from a partial regeneration."""
     return {
         "activities": [{"name": a.name, "description": a.description, "category": a.category} for a in activities],
         "restaurants": [
@@ -481,6 +541,11 @@ def _translate_with_retry(prompt: str, schema: dict, model_cls, retries: int = 1
 
 
 def _translate_to_english(itinerary: ItineraryResponse) -> TranslatedItinerary | None:
+    """Translates a freshly generated (or fully regenerated) itinerary to
+    English. Returns `None` — never a partial/misaligned result — if the
+    translation call fails outright, or if the day/item counts don't match the
+    original exactly (the caller then just stores no English version for this
+    trip, and reads fall back to French; see `_pick_translation` in storage.py)."""
     prompt = _build_translation_prompt(_itinerary_translation_payload(itinerary))
     translated = _translate_with_retry(prompt, TRANSLATION_SCHEMA, TranslatedItinerary)
     if translated is None:
@@ -501,6 +566,10 @@ def _translate_to_english(itinerary: ItineraryResponse) -> TranslatedItinerary |
 
 
 def _translate_day_items(activities: list[Activity], restaurants: list[Restaurant]) -> DayContent | None:
+    """Same contract as `_translate_to_english` but scoped to a handful of items —
+    used by `_regenerate_partial` to translate only the newly generated
+    activities/restaurants for a day (kept items already have a translation on
+    file, reused as-is)."""
     if not activities and not restaurants:
         return DayContent(activities=[], restaurants=[])
 
@@ -548,6 +617,11 @@ def _apply_translation(
 
 
 def generate_itinerary(request: ItineraryRequest, lang: str = "fr") -> ItineraryCreateResponse:
+    """Entry point for `POST /api/itinerary` — generates a brand-new trip end to
+    end: prompt Claude → geocode + fetch photos → translate to English → persist
+    to Supabase (best-effort — a save failure doesn't fail the request, it just
+    means the trip has no permanent `id`/`edit_token`) → return it in the
+    requested `lang`. Called only from `api/routes/itinerary.py`."""
     messages: list[dict] = [{"role": "user", "content": _build_prompt(request)}]
     response = _run_to_completion(messages)
 
@@ -582,6 +656,9 @@ def generate_itinerary(request: ItineraryRequest, lang: str = "fr") -> Itinerary
 
 
 def _context_to_request(context: ItineraryContext) -> ItineraryRequest:
+    """Rebuilds an `ItineraryRequest` equivalent to the one that created this
+    trip, from the stored `ItineraryContext` — lets `_regenerate_full` reuse
+    `_build_prompt` verbatim instead of duplicating the generation prompt logic."""
     city_name = context.destination_city or context.destination_country
     city_label = (
         f"{context.destination_city}, {context.destination_country}"
@@ -600,6 +677,11 @@ def _context_to_request(context: ItineraryContext) -> ItineraryRequest:
 def _regenerate_full(
     itinerary_id: str, context: ItineraryContext, lang: str = "fr", edit_token: str | None = None
 ) -> ItineraryDetail:
+    """Regenerates an entire trip from scratch, in place — same prompt/geocoding/
+    translation pipeline as `generate_itinerary`, but replaces every existing day
+    (`storage.replace_days`) instead of inserting a new `itinerary` row, so the
+    trip's `/{id}` URL never changes. Called by `regenerate_itinerary` when every
+    item was selected for regeneration."""
     request = _context_to_request(context)
     messages: list[dict] = [{"role": "user", "content": _build_prompt(request)}]
     response = _run_to_completion(messages)
@@ -649,6 +731,13 @@ def _parse_item_keys(item_keys: list[str]) -> tuple[dict[int, dict[str, set[int]
 
 
 def _merge_by_index(original: list, replaced_indices: set[int], new_items: list) -> list:
+    """Rebuilds a day's item list, swapping in `new_items` at the positions listed
+    in `replaced_indices` and leaving everything else untouched — preserves the
+    original order as much as possible. Works on any list of same-shaped items
+    (activities, restaurants, or their English `*Content` translations), which is
+    why it isn't typed more specifically. If `new_items` runs short (the model
+    returned fewer than requested), the extra slot is simply dropped, not left
+    stale — see `_regenerate_partial`'s warning log for that case."""
     new_iter = iter(new_items)
     merged = []
     for i, item in enumerate(original):
@@ -669,9 +758,20 @@ def _regenerate_partial(
     lang: str = "fr",
     edit_token: str | None = None,
 ) -> ItineraryDetail:
-    # Kept items' French text drives the regeneration prompt (see module note on
-    # get_itinerary_context); their English text (if any) is carried over as-is into
-    # the new day rows, since replace_day_items re-inserts the whole day.
+    """Regenerates only the checked items, one Claude call per affected day (not
+    one call for the whole trip — keeps each call scoped to a single day's
+    geography/time budget). For each day that has at least one selected item (or
+    is targeted as a whole via a `"{day}-day"` key, see `_parse_item_keys`):
+    builds either a full-day-rebuild prompt or a kept-items-aware replacement
+    prompt, geocodes/filters the new items, merges them back with `_merge_by_index`,
+    translates just the new items, and persists via `storage.replace_day_items`
+    (which re-inserts the *whole* day — kept items included). Called by
+    `regenerate_itinerary` when only some items were selected.
+
+    Kept items' French text drives the regeneration prompt (see the module note on
+    `get_itinerary_context`); their English text (if any) is carried over as-is into
+    the new day rows, since `replace_day_items` re-inserts the whole day.
+    """
     current = get_itinerary(itinerary_id, locale="fr")
     if current is None:
         raise RuntimeError("Itinéraire introuvable.")
@@ -775,6 +875,14 @@ def _regenerate_partial(
 def regenerate_itinerary(
     itinerary_id: str, item_keys: list[str], lang: str = "fr", edit_token: str | None = None
 ) -> ItineraryDetail:
+    """Entry point for `POST /api/itinerary/{id}/regenerate` — the only function
+    in this module the route calls directly for regeneration. Checks the edit
+    token first (raises `PermissionError` before any Claude call if it's missing/
+    invalid), then decides full vs. partial by comparing the number of distinct
+    `item_keys` to the trip's total item count: selecting everything triggers
+    `_regenerate_full`, selecting a subset triggers `_regenerate_partial`. The
+    caller (frontend) never chooses the mode itself — it just sends whichever
+    keys are checked."""
     if not check_edit_token(itinerary_id, edit_token):
         raise PermissionError("Jeton d'édition invalide ou manquant.")
 

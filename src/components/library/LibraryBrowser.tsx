@@ -8,6 +8,12 @@ import { TRIP_TYPES, type ItinerarySummary } from "@/components/travel-form/type
 import LibraryToolbar from "./LibraryToolbar";
 import LibraryCard from "./LibraryCard";
 
+/**
+ * Client-side orchestrator for `/library`: owns search/day-range/tag filter state and derives
+ * the filtered list in memory — `itineraries` is the full, already-fetched set from the server
+ * (`page.tsx`), so filtering never triggers a new network request. Renders the toolbar, the
+ * result grid, and the two distinct empty states (no trips at all vs. no match for the filters).
+ */
 export default function LibraryBrowser({ itineraries }: { itineraries: ItinerarySummary[] }) {
   const { t } = useLanguage();
   const [query, setQuery] = useState("");

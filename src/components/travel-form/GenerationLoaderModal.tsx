@@ -6,6 +6,13 @@ import { useLanguage } from "@/lib/i18n/LanguageProvider";
 
 const STEP_INTERVAL_MS = 2400;
 
+/**
+ * Full-screen overlay shown while a generation or regeneration request is in flight (can take
+ * 30s to a few minutes) — an orbiting plane icon plus a rotating list of status messages
+ * (`generationLoader.steps`) that don't reflect real backend progress (there's no streaming,
+ * see CONTEXT.md), just reassurance that something is happening. Mounted by `TravelForm.tsx`
+ * and `ItineraryMapView.tsx`.
+ */
 export default function GenerationLoaderModal() {
   const { tList } = useLanguage();
   const loadingSteps = tList("generationLoader.steps");

@@ -10,6 +10,7 @@ interface SummaryStepProps {
   data: TravelFormData;
 }
 
+/** Read-only recap of the form's step 1/2 answers, shown as step 3 right before generating. */
 export default function SummaryStep({ data }: SummaryStepProps) {
   const { t, locale } = useLanguage();
   const dateLocale = useDateFnsLocale();

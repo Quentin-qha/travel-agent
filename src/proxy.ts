@@ -13,6 +13,12 @@ const NOMINATIM_ORIGIN = "https://nominatim.openstreetmap.org";
 const CARTO_TILES_ORIGIN = "https://*.basemaps.cartocdn.com";
 const BACKEND_ORIGIN = new URL(API_URL).origin;
 
+/**
+ * Next.js 16 "Proxy" (the renamed `middleware.ts`) — runs on every request matched by
+ * `config.matcher` below, i.e. every route except static/image assets. Sets a nonce-based
+ * Content-Security-Policy and a handful of standard security headers on the response;
+ * see the CSP directive comments above for the reasoning behind each allow-listed origin.
+ */
 export function proxy(request: NextRequest) {
   const nonce = Buffer.from(crypto.randomUUID()).toString("base64");
   const isDev = process.env.NODE_ENV !== "production";

@@ -1,3 +1,4 @@
+/** App Router loading UI, shown automatically by Next.js while a page/Server Component suspends. */
 export default function Loading() {
   return (
     <main className="flex min-h-screen items-center justify-center bg-gradient-to-b from-violet-50 via-white to-white dark:from-zinc-950 dark:via-zinc-950 dark:to-zinc-950">

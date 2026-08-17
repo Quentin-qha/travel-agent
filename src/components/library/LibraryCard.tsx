@@ -3,6 +3,7 @@ import { ArrowRight } from "lucide-react";
 import { useLanguage } from "@/lib/i18n/LanguageProvider";
 import type { ItinerarySummary } from "@/components/travel-form/types";
 
+/** One trip preview card in the `/library` grid, linking to its `/{id}` detail page. */
 export default function LibraryCard({ itinerary }: { itinerary: ItinerarySummary }) {
   const { t } = useLanguage();
   const title = itinerary.destination_city ?? itinerary.destination_country;

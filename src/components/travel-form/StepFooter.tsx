@@ -12,6 +12,8 @@ interface StepFooterProps {
   onNext: () => void;
 }
 
+/** Previous/Next navigation for the form. The "Next" button becomes "Generate" (with a loading
+ * label) on the last step — same element throughout, `TravelForm.tsx` decides what it does. */
 export default function StepFooter({
   isFirstStep,
   isLastStep,

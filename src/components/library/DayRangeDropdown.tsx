@@ -15,6 +15,13 @@ interface DayRangeDropdownProps {
 
 const PANEL_WIDTH = 256; // matches w-64
 
+/**
+ * Trigger button + floating panel for the library's trip-length filter. The panel is rendered
+ * via `createPortal(..., document.body)` and positioned with fixed viewport coordinates
+ * (`getBoundingClientRect`) rather than being a normal in-flow dropdown — this avoids it being
+ * clipped or z-index-shadowed by an ancestor container (the toolbar/sticky layout). Renders
+ * nothing if every trip has the same length (`min >= max` — nothing to filter).
+ */
 export default function DayRangeDropdown({ min, max, value, onChange }: DayRangeDropdownProps) {
   const { t } = useLanguage();
   const [isOpen, setIsOpen] = useState(false);

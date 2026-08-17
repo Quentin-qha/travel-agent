@@ -4,6 +4,12 @@ import { useRouter } from "next/navigation";
 import { Languages } from "lucide-react";
 import { useLanguage } from "@/lib/i18n/LanguageProvider";
 
+/**
+ * FR/EN switch, mounted once in `layout.tsx` so it's visible on every page. Writes the locale
+ * cookie via `setLocale` (see `LanguageProvider`) and calls `router.refresh()` so any Server
+ * Component on the current page (e.g. `/library`, `/[id]`) re-fetches its data in the new
+ * language — a full page reload isn't needed for that.
+ */
 export default function LanguageToggle() {
   const router = useRouter();
   const { locale, setLocale } = useLanguage();

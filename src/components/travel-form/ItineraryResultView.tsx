@@ -11,6 +11,12 @@ interface ItineraryResultViewProps {
   itinerary: ItineraryViewData;
 }
 
+/**
+ * Read-only, non-interactive itinerary display (no map, no edit mode) — used only as the
+ * fallback in `TravelForm.tsx` when a freshly generated trip couldn't be persisted to
+ * Supabase, so it has no `id`/permanent URL and can't use the full `ItineraryMapView`. Unlike
+ * the saved-trip view, this one still shows each place's source link.
+ */
 export default function ItineraryResultView({ itinerary }: ItineraryResultViewProps) {
   const { locale } = useLanguage();
   const dateLocale = useDateFnsLocale();
