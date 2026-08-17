@@ -25,7 +25,8 @@ Application web qui génère un **planning de voyage jour par jour** (activités
                                             │
                                  ┌─────────────────────┐
                                  │  Google Geocoding    │
-                                 │  API                 │
+                                 │  + Places API         │
+                                 │  (coordonnées+photos) │
                                  └─────────────────────┘
 ```
 
@@ -102,17 +103,32 @@ travel-agent/
 │
 ├── backend/                      # Backend FastAPI (sous-projet Python indépendant)
 │   ├── app/
-│   │   ├── main.py               # App FastAPI, CORS, montage des routes, /health
-│   │   ├── core/config.py        # Settings (pydantic-settings), lit backend/.env
+│   │   ├── main.py               # App FastAPI, CORS, rate limiting (slowapi), montage des routes, /health
+│   │   ├── core/
+│   │   │   ├── config.py         # Settings (pydantic-settings), lit backend/.env
+│   │   │   ├── limiter.py        # Instance partagée slowapi.Limiter (keyed par IP) — voir section Rate limiting
+│   │   │   └── redact.py         # redact_api_key() — masque `key=...` dans les logs d'erreurs httpx (Google)
 │   │   ├── schemas/itinerary.py  # Modèles Pydantic (requête + réponse + DB + régénération + traduction)
 │   │   ├── services/
-│   │   │   ├── itinerary_agent.py  # Appel Claude + géocodage + traduction EN + orchestration (génération ET régénération)
-│   │   │   └── storage.py          # Lecture/écriture Supabase, y compris les tables de traduction
-│   │   └── api/routes/itinerary.py # Toutes les routes REST, chacune avec un paramètre `lang` (voir liste plus bas)
+│   │   │   ├── itinerary_agent.py  # Appel Claude + géocodage + photos + traduction EN + orchestration (génération ET régénération)
+│   │   │   └── storage.py          # Lecture/écriture Supabase, y compris les tables de traduction + edit token
+│   │   └── api/routes/
+│   │       ├── itinerary.py      # Toutes les routes itinéraire, chacune avec un paramètre `lang` (voir liste plus bas)
+│   │       └── photo.py          # GET /api/photo/{photo_reference} — proxy Google Places Photos (voir section dédiée)
+│   ├── scripts/backfill_photo_urls.py  # Script ponctuel : renormalise les `image_url` stockées vers le format proxy courant
 │   ├── requirements.txt
-│   ├── Dockerfile
+│   ├── Dockerfile                # Image de prod (Cloud Run — lit $PORT, fallback 8000 en local)
 │   ├── .env                      # Secrets (jamais commité — voir section env vars)
 │   └── supabase/migrations/       # ⚠️ VIDE — voir section DB plus bas, aucun fichier de migration n'est committé
+│
+├── src/app/api/itinerary/        # Route Handlers Next.js (PAS vide — proxy vers FastAPI, voir "Auth par edit token")
+│   ├── route.ts                  # POST — proxy POST /api/itinerary, pose le cookie edit_token HttpOnly
+│   └── [id]/regenerate/route.ts  # POST — proxy POST /api/itinerary/{id}/regenerate, relit le cookie → header X-Edit-Token
+├── src/lib/editTokenServer.ts    # Nom du cookie + lecteur serveur (next/headers) du edit token
+├── src/proxy.ts                  # "Proxy" Next.js 16 (= l'ancien middleware.ts) — CSP + headers de sécurité, voir section dédiée
+├── src/app/robots.ts             # /robots.txt — disallow total (site jamais indexé)
+├── src/app/error.tsx             # Error boundary App Router (Client Component)
+├── src/app/loading.tsx           # Loading UI App Router (spinner, pas de logique)
 │
 ├── .env.local                    # NEXT_PUBLIC_API_URL (frontend)
 ├── AGENTS.md / CLAUDE.md         # Avertissement Next.js "breaking changes" — à lire avant de coder du Next.js
@@ -279,10 +295,61 @@ Toute lecture/écriture texte passe maintenant par les tables de traduction (voi
 
 Toutes les routes acceptent désormais `lang: str = "fr"` en query param (FastAPI l'infère automatiquement comme query param puisque c'est un argument simple à côté du modèle de body) :
 
-- `POST /api/itinerary?lang=` → `generate_itinerary(request, lang=lang)`, erreurs converties en 502
+- `POST /api/itinerary?lang=` → `generate_itinerary(request, lang=lang)`, erreurs converties en 502, **rate-limited `5/minute; 20/hour` par IP** (voir "Rate limiting")
 - `GET /api/itinerary?lang=` → `list_itineraries(lang)` — utilisé par `/library`
-- `GET /api/itinerary/{itinerary_id}?lang=` → `get_itinerary(itinerary_id, lang)`, 404 si `None`
-- `POST /api/itinerary/{itinerary_id}/regenerate?lang=` → `regenerate_itinerary(id, request.item_keys, lang=lang)`, 404 si itinéraire introuvable (`ValueError`), 502 pour toute autre erreur (échec Claude, etc.)
+- `GET /api/itinerary/{itinerary_id}?lang=` → `get_itinerary(itinerary_id, lang, x_edit_token)`, 404 si `None`. Accepte le header optionnel `X-Edit-Token` et renvoie `can_edit: bool` dans `ItineraryDetail` (jamais le token lui-même)
+- `POST /api/itinerary/{itinerary_id}/regenerate?lang=` → vérifie d'abord `X-Edit-Token` (403 si absent/invalide, **avant tout appel Claude** — voir "Auth par edit token"), puis `regenerate_itinerary(id, request.item_keys, lang=lang)`, 404 si itinéraire introuvable (`ValueError`), 502 pour toute autre erreur (échec Claude, etc.)
+
+La doc Swagger (`/docs`, générée depuis `DESCRIPTION`/`TAGS_METADATA` dans `main.py`) documente ce flux d'auth, le rate limiting et le format des clés d'item directement en prose — bonne source à jour si le détail ci-dessous diverge un jour du code.
+
+### Auth par "edit token" (pas de comptes utilisateurs)
+
+Il n'existe **aucun système de compte/login**. À la place, chaque voyage a un jeton d'édition à lui, généré une seule fois (`secrets.token_urlsafe(24)` dans `storage.save_itinerary`), stocké en clair dans la nouvelle colonne `itinerary.edit_token`, et comparé côté serveur avec `secrets.compare_digest` (temps constant).
+
+Flux complet :
+1. **Génération** — `POST /api/itinerary` renvoie `edit_token` **une seule fois**, dans le corps JSON.
+2. **Le navigateur ne le voit jamais** — `src/app/api/itinerary/route.ts` (Route Handler Next.js, pas d'appel direct navigateur → FastAPI) proxie l'appel, retire `edit_token` de la réponse renvoyée au client, et le pose lui-même en cookie **HttpOnly** (`travel-agent-edit-token-{id}`, 1 an, `sameSite=lax`, `secure` en prod) — donc illisible par du JS client, y compris en cas de XSS. Nom du cookie centralisé dans `src/lib/editTokenServer.ts` (`editTokenCookieName`/`getServerEditToken`).
+3. **Lecture** — `src/app/[id]/page.tsx` (Server Component) lit le cookie et l'envoie en header `X-Edit-Token` sur son `GET /api/itinerary/{id}`. Le backend renvoie `can_edit: bool` (jamais le token) ; `ItineraryMapView.tsx` n'affiche le crayon d'édition que si `can_edit` est vrai.
+4. **Régénération** — `src/app/api/itinerary/[id]/regenerate/route.ts` (autre Route Handler) relit le cookie côté serveur et l'attache en `X-Edit-Token` au proxy vers FastAPI. Le fetch fait par le navigateur lui-même ne porte jamais de token.
+5. **Validation backend** — `regenerate_itinerary` appelle `storage.check_edit_token(itinerary_id, edit_token)` **avant tout appel Claude** et lève `PermissionError` → HTTP 403 si absent/invalide.
+
+Conséquence : un lien partagé reste **lisible par n'importe qui**, mais seul le navigateur qui détient le cookie (celui qui a créé le voyage) peut le modifier. Ce n'est pas un vrai système d'auth multi-appareils/multi-utilisateurs — juste une preuve de possession locale au navigateur.
+
+### Photos (Google Places, jamais exposées en direct)
+
+`image_url` existe maintenant sur `itinerary`, `activity` et `restaurant` (colonnes structurelles, pas dans les tables de traduction — la photo ne dépend pas de la langue).
+
+- **Recherche du lieu** : `_geocode_place` tente d'abord `_find_place` (Google *Find Place From Text*, matche par nom de lieu — plus fiable que le Geocoding classique qui résolvait parfois vers l'établissement voisin et donc la mauvaise photo), avec fallback sur le géocodage habituel. Renvoie `(lat, lon, place_id)`.
+- **Récupération de la photo** : si un `place_id` existe, `_fetch_place_photo_url` appelle Google Place Details (`fields=photos`) pour obtenir un `photo_reference`, puis construit et stocke `{api_base_url}/api/photo/{photo_reference}` — **jamais** une URL `maps.googleapis.com/...&key=...` brute (voir "Décisions" #22).
+- **Photo de couverture destination** : `generate_itinerary` appelle en plus `_fetch_destination_image(city)` et stocke le résultat dans `itinerary.image_url`.
+- Même pipeline lors d'une régénération (complète ou partielle) — les nouveaux lieux reçoivent une nouvelle `image_url` via `_geocode_place`.
+- **Route proxy** : `GET /api/photo/{photo_reference}` (`api/routes/photo.py`) — vérifie d'abord via `storage.photo_reference_exists` que la référence correspond bien à une `image_url` réellement stockée quelque part (évite que la route serve de relais ouvert facturé sur la clé API de l'app), récupère les octets de l'image côté serveur (`key=` jamais exposée au client), les renvoie avec `Cache-Control: public, max-age=86400`. `maxwidth` en query param (100–1600, défaut 800). Rate-limited `60/minute` par IP.
+- **Frontend** : `types.ts` a `image_url: string | null` sur `Activity`/`Restaurant`. `ItineraryMap.tsx` l'affiche dans les popups (`next/image`, 190px). `ItineraryMapView.tsx` affiche en plus `itinerary.image_url` comme photo de couverture en haut de la sidebar.
+- **`next.config.ts`** : `images.remotePatterns` autorise `/api/photo/**` à la fois sur `NEXT_PUBLIC_API_URL` et sur une constante `PRODUCTION_API_URL` codée en dur (le service Cloud Run, voir "Déploiement") — nécessaire car dev local et prod partagent la même base Supabase, donc une `image_url` peut pointer vers l'un ou l'autre backend selon qui a généré/régénéré le voyage en dernier (voir "Décisions" #23). `dangerouslyAllowLocalIP` désactive le garde-fou SSRF de Next 16 contre les IP privées/loopback, mais **seulement** quand l'hôte configuré est `localhost`/`127.0.0.1`/`::1`.
+- **Script de maintenance** : `backend/scripts/backfill_photo_urls.py` — normalise idempotemment toute `image_url` obsolète (URL Google brute, ou URL proxy pointant vers un ancien `api_base_url`) vers le format courant. Lancer manuellement : `API_BASE_URL=https://... python scripts/backfill_photo_urls.py`.
+
+### Rate limiting (`slowapi`)
+
+`backend/app/core/limiter.py` définit une instance partagée `Limiter(key_func=get_remote_address)` (clé = IP client), câblée dans `main.py` (`app.state.limiter`, handler d'exception `RateLimitExceeded` → 429 avec `{"error": "..."}`, `SlowAPIMiddleware`).
+
+Limites appliquées :
+- `POST /api/itinerary` : `5/minute; 20/hour` — déclenche un pipeline Claude + Google Geocoding payant, sans autre contrôle d'accès.
+- `GET /api/photo/{photo_reference}` : `60/minute`.
+- Le reste des routes (`GET /api/itinerary`, `GET /api/itinerary/{id}`, `POST .../regenerate`) n'a **pas** de limite slowapi dédiée — la régénération est déjà protégée en amont par le edit token (échoue avant tout appel Claude si absent/invalide, voir "Auth par edit token" et "Décisions" #27).
+
+### Middleware de sécurité (`src/proxy.ts`) et fichiers App Router annexes
+
+⚠️ En Next.js 16, `middleware.ts` a été renommé **`proxy.ts`** (même mécanisme, nouvelle convention de fichier — voir `node_modules/next/dist/docs/`, et "Décisions" #24). Ce fichier n'est **pas** optionnel/accessoire : c'est la seule ligne de défense CSP de l'app.
+
+- Génère un nonce par requête (`crypto.randomUUID()` en base64) et pose une CSP complète : `script-src 'self' 'nonce-{n}' 'strict-dynamic'` (+ `unsafe-eval` seulement en dev, pour le HMR), `style-src 'self' 'unsafe-inline'` (contrainte : Leaflet construit ses popups/markers en HTML brut avec des `style="..."` inline, pas de nonce praticable là-dessus), `img-src 'self' data: <tuiles CARTO> <origine backend>` (l'origine backend sert le proxy photo), `connect-src 'self' <Nominatim>`, plus `object-src 'none'`, `frame-ancestors 'none'`, `upgrade-insecure-requests`.
+- Ajoute aussi `X-Content-Type-Options: nosniff`, `Referrer-Policy: strict-origin-when-cross-origin`, `X-Frame-Options: DENY`, `Permissions-Policy` (caméra/micro/géoloc désactivés).
+- `matcher: ["/((?!_next/static|_next/image|favicon.ico).*)"]` — tourne sur toutes les routes sauf les assets statiques Next.
+- Le commentaire en tête de fichier documente que le navigateur n'a plus besoin de parler directement à FastAPI pour les appels mutants (tout passe par les Route Handlers Next.js) — seuls Nominatim, les tuiles CARTO et les photos (`/api/photo/...`, servies en `<img>` classique) restent des appels client directs, d'où l'allow-list ci-dessus.
+
+Autres fichiers App Router non documentés jusqu'ici :
+- `src/app/robots.ts` — génère `/robots.txt` avec `disallow: "/"` pour tous les user-agents (cohérent avec `metadata.robots = { index: false, follow: false }` de `layout.tsx` — les voyages sont partageables par lien, pas censés être indexés).
+- `src/app/error.tsx` — error boundary App Router (Client Component), log `console.error`, UI traduite avec bouton retry (`reset()`) + lien vers `/`.
+- `src/app/loading.tsx` — UI de chargement App Router (spinner), aucune logique.
 
 ---
 
@@ -294,26 +361,30 @@ Toutes les routes acceptent désormais `lang: str = "fr"` en query param (FastAP
 itinerary (id uuid pk, created_at,
            trip_types text[] not null default '{}',
            traveler_type text (nullable), traveler_count integer (nullable),
-           city_lat double precision not null, city_lon double precision not null)
+           city_lat double precision not null, city_lon double precision not null,
+           edit_token text (nullable — voir "Auth par edit token"),
+           image_url text (nullable — voir "Photos"))
   ├─ itinerary_translations (id uuid pk, itinerary_id fk cascade, locale text check (fr/en),
   │                          destination_city text (nullable), destination_country text not null,
   │                          summary text not null,  unique(itinerary_id, locale))
   └─ day_plan (id uuid pk, itinerary_id fk cascade, day_number, date)
        ├─ activity (id uuid pk, day_plan_id fk cascade, location_query, duration_minutes,
-       │            budget_level, source_url, lat, lon, sort_order)
+       │            budget_level, source_url, lat, lon, sort_order, image_url (nullable))
        │    └─ activity_translations (id uuid pk, activity_id fk cascade, locale check (fr/en),
        │                              name, description, category,  unique(activity_id, locale))
        └─ restaurant (id uuid pk, day_plan_id fk cascade, location_query,
-                       budget_level, source_url, lat, lon, sort_order)
+                       budget_level, source_url, lat, lon, sort_order, image_url (nullable))
             └─ restaurant_translations (id uuid pk, restaurant_id fk cascade, locale check (fr/en),
                                         name, description, cuisine,  unique(restaurant_id, locale))
 ```
+
+`image_url` vit sur les tables structurelles (pas les `*_translations`) — une photo ne dépend pas de la langue affichée. `edit_token` est nullable pour tolérer les lignes créées avant l'introduction du système (pas de voyage éditable rétroactivement sans en régénérer un nouveau).
 
 **`itinerary`/`activity`/`restaurant` n'ont plus aucune colonne texte libre** — `destination_city`/`destination_country`/`summary`/`name`/`description`/`category`/`cuisine` ont tous été déplacés dans les tables `*_translations` correspondantes (une ligne par langue). Les FK sont `on delete cascade`, donc supprimer un `day_plan` nettoie automatiquement `activity`/`restaurant` **et** leurs traductions, sans code de nettoyage supplémentaire.
 
 ⚠️ **Ne pas essayer de lire/écrire `destination_city`, `name`, `description`, etc. directement sur les tables de base** — ces colonnes ont été supprimées des tables de base il y a longtemps (leur contenu vit désormais dans les tables `*_translations`). Tout passe par `itinerary_translations`/`activity_translations`/`restaurant_translations` (voir `storage.py`).
 
-**Pourquoi des tables de traduction séparées plutôt qu'une colonne par langue ou du JSONB** — voir "Décisions" #16.
+**Pourquoi des tables de traduction séparées plutôt qu'une colonne par langue ou du JSONB** — voir "Décisions" #20.
 
 **Voyages générés avant ce chantier de traduction** : ont une ligne `locale='fr'` dans les tables de traduction (backfillée depuis les anciennes colonnes texte lors du passage au schéma actuel), mais **aucune ligne `en`** — pas de backfill EN décidé (voir "Ce qui n'est PAS encore fait"). Ils s'affichent en français même en mode EN, jusqu'à leur prochaine régénération.
 
@@ -324,7 +395,7 @@ itinerary (id uuid pk, created_at,
 
 **Pas de RLS** — désactivé volontairement (choix explicite de l'utilisateur : gérer les accès ailleurs qu'au niveau base de données, pas via des policies Postgres). Le backend utilise la clé `service_role` qui bypasserait RLS de toute façon.
 
-**Toujours pas stocké** : `date_from`/`date_to` explicites (dérivables du min/max des `day_plan.date`, donc pas bloquant), et rien côté auth/utilisateurs (pas de notion de propriétaire d'un voyage).
+**Toujours pas stocké** : `date_from`/`date_to` explicites (dérivables du min/max des `day_plan.date`, donc pas bloquant). Toujours aucune notion de compte utilisateur — `edit_token` donne une preuve de possession par navigateur, pas un vrai propriétaire identifié (voir "Auth par edit token").
 
 ---
 
@@ -333,9 +404,15 @@ itinerary (id uuid pk, created_at,
 **`backend/.env`** (jamais commité, `.gitignore` couvre `.env*`) :
 ```
 ANTHROPIC_API_KEY=...       # console Anthropic
-GOOGLE_LOCATION_API_KEY=... # Google Cloud Console, projet avec Geocoding API activée + facturation + clé SANS restriction "HTTP referrers" (elle doit marcher server-side, pas juste browser)
+GOOGLE_LOCATION_API_KEY=... # Google Cloud Console, projet avec Geocoding API + Places API activées + facturation + clé SANS restriction "HTTP referrers" (elle doit marcher server-side, pas juste browser)
 SUPABASE_URL=https://qxwkztwxpgtzuxwnysgn.supabase.co   # SANS /rest/v1/ à la fin
 SUPABASE_SERVICE_ROLE_KEY=...  # clé "secret"/service_role, PAS la clé publique/anon
+
+# Optionnels, valeurs par défaut dans core/config.py :
+CLAUDE_MODEL=claude-haiku-4-5      # voir MODELS_WITH_ADAPTIVE_FEATURES dans itinerary_agent.py
+CORS_ALLOW_ORIGINS=["http://localhost:3000"]
+API_BASE_URL=http://localhost:8000 # sert à construire les URLs absolues /api/photo/{ref} — mettre l'URL publique du backend en prod
+THREAD_POOL_SIZE=100               # cap du threadpool anyio pour les routes sync (génération/régénération tiennent un thread longtemps)
 ```
 
 **`.env.local`** (racine, frontend) :
@@ -363,6 +440,12 @@ Puis `http://localhost:3000`. Doc API auto-générée sur `http://localhost:8000
 
 Pour un test rapide de bout en bout sans repasser par le formulaire (génération réelle = coût + temps d'appel Claude), interroger directement Supabase via son API REST avec la `service_role` key (`backend/.env`) pour récupérer un id d'itinéraire existant, plutôt que d'en générer un nouveau.
 
+## Déploiement
+
+- **Backend** : Google Cloud Run, via `backend/Dockerfile` (image `python:3.12-slim`, lit `$PORT` injecté par Cloud Run, fallback `8000` pour `docker run` en local). URL de prod codée en dur dans `next.config.ts` (`PRODUCTION_API_URL`) pour l'allow-list d'images — **à mettre à jour si le service est redéployé ailleurs ou change de domaine**.
+- **Frontend** : Vercel (déploiement standard Next.js — connecter le repo, définir `NEXT_PUBLIC_API_URL` sur l'URL Cloud Run du backend dans les variables d'environnement du projet Vercel).
+- Aucun fichier de config de déploiement (`vercel.json`, workflow CI/CD) n'est committé dans le repo — configuration faite directement dans les dashboards Vercel/Google Cloud.
+
 ---
 
 ## Décisions importantes et leur raison (pour ne pas les défaire par erreur)
@@ -380,12 +463,26 @@ Pour un test rapide de bout en bout sans repasser par le formulaire (génératio
 11. **Clés d'items (`{day}-{type}-{index}`) utilisées à la fois côté UI et comme identifiant API** — pas de vrai id de ligne exposé pour `Activity`/`Restaurant` (le schéma Claude doit rester "propre", sans champ `id` que le modèle pourrait halluciner). L'adressage par position (jour + type + index) est stable tant qu'on ne réordonne pas silencieusement une journée.
 12. **Carte en tuiles CARTO (Voyager), pas Google Maps ni OSM standard** — reste dans l'esprit "gratuit, sans clé API" du choix Leaflet initial, tout en étant plus lisible que le rendu OSM par défaut (trop chargé) et plus familier que Positron seul (trop minimaliste, manque de repères).
 13. **Règle CSS globale `button:not(:disabled) { cursor: pointer }`** (`globals.css`) plutôt que `cursor-pointer` répété sur chaque bouton — un `<button>` HTML n'a pas ce curseur par défaut (contrairement à `<a>`), et le vouloir partout justifie une règle globale plutôt qu'une classe Tailwind dupliquée des dizaines de fois.
+14. **Panneau `DayRangeDropdown` rendu via React Portal vers `document.body`** — sa position est calculée en coordonnées viewport (`getBoundingClientRect` du bouton déclencheur), donc le portal évite qu'un ancêtre avec son propre `overflow`/stacking context (toolbar, header sticky) ne le clippe ou ne le fasse apparaître sous d'autres éléments.
+15. **`LanguageToggle` en `z-[999]`** — Leaflet pose lui-même un z-index élevé sur ses propres contrôles (zoom, attribution) ; sans ce z-index, le bouton de langue passerait sous la carte sur la page `/[id]`.
+16. **Locale stockée en cookie, pas `localStorage`** — un Server Component (page bibliothèque, page voyage) doit connaître la langue de l'utilisateur **avant le premier rendu** pour demander le bon contenu au backend (`?lang=`), ce que `localStorage` ne permet pas côté serveur.
+17. **`budget_level` jamais traduit, y compris en mode EN** — structurellement impossible de le traduire par erreur : `ActivityContent`/`RestaurantContent` (le schéma donné à Claude pour la traduction) ne contiennent que `name`/`description`/`category` ou `cuisine`, pas `budget_level`. C'est un choix de schéma, pas juste un choix de prompt — `TranslatedItinerary` ne véhicule tout simplement pas ce champ.
+18. **`ItineraryContext` (régénération) toujours reconstruit depuis le contenu français**, jamais depuis une traduction — évite de régénérer un prompt à partir d'un texte déjà traduit (risque de dérive/perte de fidélité en cascade), quelle que soit la langue de l'utilisateur qui déclenche la régénération.
+19. **`_translate_with_retry` retry une fois** avant d'abandonner (→ pas de version anglaise pour ce voyage) — même logique que `_geocode`, ajoutée après un vrai échec silencieux observé en prod (une erreur API transitoire faisait disparaître la traduction EN sans qu'aucune erreur ne remonte).
+20. **Tables de traduction séparées (`*_translations`, une ligne par langue) plutôt qu'une colonne par langue ou du JSONB** — ajouter une langue future ne demande qu'une nouvelle valeur au `check (fr/en)`, pas de migration de colonnes ; la régénération partielle peut fusionner par position (`_merge_by_index`) sans parser/patcher un blob JSON ; `_pick_translation` reste un simple `WHERE locale = ...` côté lecture.
+21. **Edit token en cookie HttpOnly posé par un Route Handler Next.js, jamais lu/écrit en JS client** — le navigateur ne doit jamais pouvoir lire ce token (protection XSS) ; toute requête qui doit l'envoyer passe donc par un proxy serveur (`src/app/api/itinerary/**`) plutôt qu'un fetch direct navigateur → FastAPI. Comparaison en temps constant (`secrets.compare_digest`) côté backend pour éviter une fuite par timing.
+22. **`image_url` stocke toujours une URL du proxy `/api/photo/{reference}` du backend, jamais une URL Google directe** — une URL Google Places Photo embarque la clé API en clair (`key=...`) ; la stocker telle quelle la ferait fuir vers n'importe quel client chargeant l'image.
+23. **`next.config.ts` autorise en `remotePatterns` à la fois l'hôte API configuré et l'hôte de prod codé en dur** — dev local et prod partagent la même base Supabase, donc une `image_url` en base peut avoir été écrite par l'un ou l'autre backend selon qui a généré/régénéré le voyage en dernier ; les deux doivent être des hôtes d'images de confiance en permanence.
+24. **`src/proxy.ts`, pas `middleware.ts`** — Next.js 16 a renommé le mécanisme "Middleware" en "Proxy" (même fonction, nouvelle convention de fichier). Ce n'est pas un choix du projet, juste la version de Next.js utilisée — à savoir pour ne pas chercher/recréer un `middleware.ts` qui n'existe plus.
+25. **CSP avec nonce + `strict-dynamic`** plutôt qu'un `script-src` en `unsafe-inline` — sécurise l'hydration Next sans ouvrir de large trou XSS. `style-src` garde `unsafe-inline` uniquement parce que Leaflet construit ses popups/markers en HTML brut avec des `style="..."` inline (voir `ItineraryMap.tsx`), où un nonce n'est pas praticable.
+26. **Le proxy photo vérifie que le `photo_reference` demandé correspond à une `image_url` réellement stockée en base avant de relayer l'appel à Google** — sans ce contrôle, `GET /api/photo/{n'importe quoi}` serait un relais ouvert, non authentifié, facturé sur la clé API de l'app.
+27. **Rate limiting slowapi seulement sur `POST /api/itinerary` et `GET /api/photo/...`**, pas sur la régénération — la régénération est déjà bloquée en amont par la vérification du edit token (échoue avant tout appel Claude si le token est absent/invalide), donc un rate limit dédié serait redondant.
 
 ## Ce qui n'est PAS encore fait
 
 - Pas de streaming de la génération/régénération vers le frontend (le frontend attend la réponse complète, pas de retour de progression en direct — peut être long, surtout pour une régénération complète)
-- Pas de gestion d'utilisateurs/authentification — tout voyage généré est visible par quiconque a l'URL (ou passe par `/library`, qui liste tout sans filtrage)
+- Pas de vrai système de comptes utilisateurs — seulement l'`edit_token` par voyage (voir "Auth par edit token") : une preuve de possession liée à un navigateur, pas un compte identifié/multi-appareils. Tout voyage reste **lisible** par quiconque a l'URL (ou passe par `/library`, qui liste tout sans filtrage) — seule l'**édition** est protégée.
 - Pas de tests automatisés (unitaires ou e2e)
 - Pas d'historique/annulation après une régénération (écrase les données précédentes, pas de "undo")
 - La régénération partielle ne rafraîchit pas le résumé global du voyage (seule la régénération complète le fait)
-- Le dossier `src/app/api/` existe mais est vide (résidu, sans impact)
+- Pas de backfill EN pour les voyages générés avant le chantier de traduction ni de backfill `edit_token`/`image_url` rétroactif pour les tout premiers voyages — ces lignes gardent des colonnes `null` jusqu'à leur prochaine régénération

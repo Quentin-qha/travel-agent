@@ -3,6 +3,13 @@ import LibraryBrowser from "@/components/library/LibraryBrowser";
 import { getServerLocale } from "@/lib/i18n/locale";
 import { API_URL } from "@/lib/apiUrl";
 
+/**
+ * `/library` — Server Component that does the one data fetch (`GET /api/itinerary`, in the
+ * viewer's locale) and hands the full, unfiltered list to `LibraryBrowser` (Client Component)
+ * for search/filter/rendering. Kept as a Server Component specifically so this fetch runs
+ * server-side; the interactive filtering itself can't live here (needs `useLanguage()` and
+ * client state).
+ */
 export default async function LibraryPage() {
   const locale = await getServerLocale();
   const response = await fetch(`${API_URL}/api/itinerary?lang=${locale}`, { cache: "no-store" });

@@ -11,6 +11,8 @@ interface TravelerPickerProps {
   onTravelerCountChange: (count: number) => void;
 }
 
+/** Traveler configuration (`solo`/`couple`/`famille`/`amis`/`groupe`) + a 1-20 headcount stepper.
+ * Switching configuration resets the count to that type's `defaultCount` (see `TRAVELER_TYPES`). */
 export default function TravelerPicker({
   travelerType,
   travelerCount,

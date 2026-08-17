@@ -89,6 +89,7 @@ function isNullableString(value: unknown): value is string | null {
   return value === null || typeof value === "string";
 }
 
+/** Structural check that `value` has the shape of one `ItineraryDay` (used by `isItineraryViewData`). */
 function isItineraryDay(value: unknown): value is ItineraryDay {
   if (!value || typeof value !== "object") return false;
   const v = value as Record<string, unknown>;
@@ -119,6 +120,7 @@ export function isItineraryViewData(value: unknown): value is ItineraryViewData 
   );
 }
 
+/** Type guard for the array returned by `GET /api/itinerary` (library listing) — see `isItineraryViewData`. */
 export function isItinerarySummaryList(value: unknown): value is ItinerarySummary[] {
   if (!Array.isArray(value)) return false;
   return value.every((item) => {
@@ -136,6 +138,7 @@ export function isItinerarySummaryList(value: unknown): value is ItinerarySummar
   });
 }
 
+/** `"City, Country"`, or just `"Country"` if `city` is null (old trips saved before it was required). */
 export function formatDestination(city: string | null, country: string): string {
   return city ? `${city}, ${country}` : country;
 }
@@ -185,6 +188,7 @@ export const INITIAL_FORM_DATA: TravelFormData = {
   tripTypes: [],
 };
 
+/** Whether the given form step's required fields are filled in — gates the "Next" button in `TravelForm.tsx`. */
 export function isStepValid(step: number, data: TravelFormData): boolean {
   switch (step) {
     case 1:

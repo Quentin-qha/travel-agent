@@ -5,6 +5,8 @@ import Link from "next/link";
 import { TriangleAlert } from "lucide-react";
 import { useLanguage } from "@/lib/i18n/LanguageProvider";
 
+/** App Router error boundary — catches any uncaught rendering error below it, logs it, and
+ * shows a retry/home UI instead of a blank crashed page. `reset()` re-tries the failed render. */
 export default function Error({ error, reset }: { error: Error & { digest?: string }; reset: () => void }) {
   const { t } = useLanguage();
 

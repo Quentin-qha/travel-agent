@@ -9,6 +9,11 @@ interface DayRangeSliderProps {
   onChange: (value: [number, number]) => void;
 }
 
+/**
+ * Native dual-handle range slider (two overlapping `<input type="range">`, styled via the
+ * `.dual-range-thumb` class in `globals.css`) for picking a `[min, max]` day-count range.
+ * Each handle's `onChange` clamps against the other so they can never cross.
+ */
 export default function DayRangeSlider({ min, max, value, onChange }: DayRangeSliderProps) {
   const { t } = useLanguage();
   const [lo, hi] = value;

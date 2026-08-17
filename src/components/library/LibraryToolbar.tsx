@@ -16,6 +16,9 @@ interface LibraryToolbarProps {
   onToggleTag: (tag: string) => void;
 }
 
+/** Search box + day-range filter + trip-type tag chips for `/library` — purely controlled by
+ * `LibraryBrowser`, holds no filter state of its own. `availableTags` should already be scoped
+ * to tags actually present in the current trips (not the full `TRIP_TYPES` list). */
 export default function LibraryToolbar({
   query,
   onQueryChange,

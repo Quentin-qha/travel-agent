@@ -6,6 +6,12 @@ import { API_URL } from "@/lib/apiUrl";
 // server-side and attached to the backend call here, instead of being read
 // from JS on the client and sent as a header (which required the cookie to
 // be JS-readable, i.e. stealable by XSS).
+/**
+ * `POST /api/itinerary/{id}/regenerate` (Next.js Route Handler) — proxies regeneration
+ * to the FastAPI backend. Called by `ItineraryMapView.tsx` instead of hitting the backend
+ * directly, so the edit-token cookie (HttpOnly, never readable by client JS) can be read
+ * here server-side and forwarded as the `X-Edit-Token` header the backend expects.
+ */
 export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const lang = request.nextUrl.searchParams.get("lang") ?? "fr";

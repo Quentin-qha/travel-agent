@@ -49,6 +49,8 @@ interface ItineraryMapViewProps {
   itinerary: ItineraryViewData;
 }
 
+/** Converts one day's geocoded activities/restaurants into map markers. Ungeocoded
+ * places (lat/lon still null) are silently skipped — they have nothing to plot. */
 function buildPoints(day: ItineraryDay | undefined): MapPoint[] {
   if (!day) return [];
   const points: MapPoint[] = [];
@@ -88,13 +90,17 @@ function buildPoints(day: ItineraryDay | undefined): MapPoint[] {
   return points;
 }
 
+/** The regeneration item-key format for "rebuild this whole day", e.g. `"3-day"` — see `toggleDayForRegen`. */
 function dayKeyFor(dayNumber: number): string {
   return `${dayNumber}-day`;
 }
 
-// A day with zero items has no activity/restaurant index to key a selection on — the only
-// way to include it is its whole-day key (see backend's _parse_item_keys), which also
-// asks the model to rebuild the day from scratch rather than replace a fixed item count.
+/** Every item key that "select all" in edit mode should check — used to compute the
+ * select-all/deselect-all toggle and to detect "everything is selected" (full regen).
+ *
+ * A day with zero items has no activity/restaurant index to key a selection on — the only
+ * way to include it is its whole-day key (see backend's _parse_item_keys), which also
+ * asks the model to rebuild the day from scratch rather than replace a fixed item count. */
 function allSelectableKeys(days: ItineraryDay[]): string[] {
   return days.flatMap((day) => {
     if (day.activities.length === 0 && day.restaurants.length === 0) return [dayKeyFor(day.day_number)];
@@ -107,6 +113,8 @@ function allSelectableKeys(days: ItineraryDay[]): string[] {
 
 const PARIS_FALLBACK: [number, number] = [48.8566, 2.3522];
 
+/** Map center to use before/without any geocoded point — first geocoded place found across
+ * all days, or Paris as a last-resort default (e.g. a trip where every place failed to geocode). */
 function computeFallbackCenter(days: ItineraryDay[]): [number, number] {
   const firstGeocoded = days
     .flatMap((day) => [...day.activities, ...day.restaurants])
@@ -116,6 +124,14 @@ function computeFallbackCenter(days: ItineraryDay[]): [number, number] {
 
 type DaySelection = number | "all";
 
+/**
+ * The trip detail page's core layout (`src/app/[id]/page.tsx`): sidebar (destination header,
+ * day-by-day timeline) on the left, synced Leaflet map (`ItineraryMap`) on the right/bottom.
+ * Also owns the edit/regeneration flow — toggling edit mode, checking items, and calling
+ * `POST /api/itinerary/{id}/regenerate` (via the Next.js proxy route, not the backend directly)
+ * when the user confirms. `itinerary` starts from the server-fetched `initialItinerary` and is
+ * replaced in place with the regeneration response — no page reload.
+ */
 export default function ItineraryMapView({ itineraryId, itinerary: initialItinerary }: ItineraryMapViewProps) {
   const { t, locale } = useLanguage();
   const dateLocale = useDateFnsLocale();
@@ -157,12 +173,15 @@ export default function ItineraryMapView({ itineraryId, itinerary: initialItiner
     itemRefs.current.get(selectedKey)?.scrollIntoView({ behavior: "smooth", block: "center" });
   }, [selectedKey]);
 
+  /** Selects a card/pin by key — used by both clicking a sidebar card and clicking a map pin (see `ItineraryMap`'s `onSelect`). */
   function selectItem(key: string, dayNumber: number) {
     // Clicking an item never narrows the "Tout" overview back down to a single day.
     setSelectedDay((current) => (current === "all" ? current : dayNumber));
     setSelectedKey(key);
   }
 
+  /** Handles the floating day-filter buttons on the map: filters the map's pins to that day
+   * and scrolls the sidebar to the matching section (offset to clear the sticky header). */
   function handleDayButtonClick(day: DaySelection) {
     setSelectedDay(day);
     setSelectedKey(null);
@@ -205,6 +224,7 @@ export default function ItineraryMapView({ itineraryId, itinerary: initialItiner
     setTimeout(() => setShowCopiedToast(false), 2000);
   }
 
+  /** Checks/unchecks one item for regeneration; hand-editing an item cancels that day's whole-day rebuild flag. */
   function toggleItemForRegen(key: string, dayNumber: number) {
     setSelectedForRegen((prev) => {
       const next = new Set(prev);
@@ -216,6 +236,7 @@ export default function ItineraryMapView({ itineraryId, itinerary: initialItiner
     });
   }
 
+  /** Toggles the "regenerate whole day" checkbox — checking it supersedes and clears any per-item selection for that day. */
   function toggleDayForRegen(day: ItineraryDay) {
     const dKey = dayKeyFor(day.day_number);
     setSelectedForRegen((prev) => {
@@ -232,6 +253,8 @@ export default function ItineraryMapView({ itineraryId, itinerary: initialItiner
     });
   }
 
+  /** Submits the currently checked item keys for regeneration and swaps `itinerary` for the response
+   * in place — the backend alone decides full vs. partial based on how many keys were sent. */
   async function handleRegenerate() {
     if (selectedForRegen.size === 0 || isRegenerating) return;
 
@@ -564,6 +587,8 @@ export default function ItineraryMapView({ itineraryId, itinerary: initialItiner
   );
 }
 
+/** One activity/restaurant row in the sidebar. Click behavior depends on `editable`: normally
+ * selects the item (highlights + opens its map pin); in edit mode, toggles its checkbox instead. */
 function SidebarCard({
   cardKey,
   icon: Icon,

@@ -38,6 +38,12 @@ def _pick_translation(rows: list[dict], locale: str) -> dict:
 def _insert_activities(
     day_plan_id: str, activities: list[Activity], translated: list[ActivityContent] | None = None
 ) -> None:
+    """Bulk-inserts a day's activities plus their French (and, if `translated`
+    is given, English) translation rows. Relies on Supabase's bulk insert
+    returning rows in the order they were submitted to line up `inserted_ids`
+    with `activities` — verified in practice, not guaranteed by PostgREST in
+    general. Called by both `_insert_days` (fresh insert) and indirectly by
+    `replace_day_items` (delete + reinsert)."""
     if not activities:
         return
     rows = (
@@ -90,6 +96,8 @@ def _insert_activities(
 def _insert_restaurants(
     day_plan_id: str, restaurants: list[Restaurant], translated: list[RestaurantContent] | None = None
 ) -> None:
+    """Restaurant equivalent of `_insert_activities` — same bulk-insert-then-
+    translate pattern, see that function's docstring for the details."""
     if not restaurants:
         return
     rows = (
@@ -139,6 +147,10 @@ def _insert_restaurants(
 
 
 def _insert_days(itinerary_id: str, days: list[DayPlan], translated_days: list[DayContent] | None = None) -> None:
+    """Inserts every `day_plan` row for a trip, plus each day's activities/
+    restaurants via `_insert_activities`/`_insert_restaurants`. Shared by
+    `save_itinerary` (new trip) and `replace_days` (full regeneration, called
+    after the old days have already been deleted)."""
     for index, day in enumerate(days):
         day_row = (
             client.table("day_plan")
@@ -201,6 +213,11 @@ def save_itinerary(
 
 
 def check_edit_token(itinerary_id: str, edit_token: str | None) -> bool:
+    """Whether `edit_token` is the trip's real token. `None`/empty always fails
+    fast without a DB round trip. Uses `secrets.compare_digest` (constant-time)
+    to avoid leaking the real token byte-by-byte through response-time
+    differences. Called by `regenerate_itinerary` to gate regeneration, and
+    mirrored (inline) by `get_itinerary`'s `can_edit` computation."""
     if not edit_token:
         return False
     resp = client.table("itinerary").select("edit_token").eq("id", itinerary_id).execute()
@@ -212,6 +229,14 @@ def check_edit_token(itinerary_id: str, edit_token: str | None) -> bool:
 def get_itinerary(
     itinerary_id: str, locale: str = DEFAULT_LOCALE, edit_token: str | None = None
 ) -> ItineraryDetail | None:
+    """Reads one trip in full — itinerary metadata, every day, every activity/
+    restaurant — already merged into `locale` via `_pick_translation` (falls
+    back to French per-field, never returns a blank). Pass `edit_token` to also
+    get back an accurate `can_edit` flag; omit it (e.g. for a plain read with no
+    cookie) and `can_edit` is simply `False`. Returns `None` if the id doesn't
+    exist. Used by the `GET /api/itinerary/{id}` route, and internally after
+    every generation/regeneration to build the response from what was just
+    persisted rather than duplicating the merge logic in-memory."""
     itinerary_resp = (
         client.table("itinerary").select("*, itinerary_translations(*)").eq("id", itinerary_id).execute()
     )
@@ -269,6 +294,8 @@ def get_itinerary(
 
 
 def _build_activity(row: dict, locale: str) -> Activity:
+    """Assembles an `Activity` from a `activity` row plus its embedded
+    `activity_translations`, picking the right locale. Used only by `get_itinerary`."""
     text = _pick_translation(row.get("activity_translations") or [], locale)
     return Activity(
         name=text.get("name") or "",
@@ -285,6 +312,7 @@ def _build_activity(row: dict, locale: str) -> Activity:
 
 
 def _build_restaurant(row: dict, locale: str) -> Restaurant:
+    """`Restaurant` counterpart of `_build_activity` — same role, used only by `get_itinerary`."""
     text = _pick_translation(row.get("restaurant_translations") or [], locale)
     return Restaurant(
         name=text.get("name") or "",
@@ -300,6 +328,10 @@ def _build_restaurant(row: dict, locale: str) -> Restaurant:
 
 
 def list_itineraries(locale: str = DEFAULT_LOCALE) -> list[ItinerarySummary]:
+    """Lists every saved trip as lightweight summaries (no activities/restaurants),
+    newest first, merged into `locale`. Backs the `/library` page via
+    `GET /api/itinerary`.
+    """
     # day_plan(day_number) embeds each itinerary's day rows just to count them —
     # avoids a second round trip per itinerary for a value we only need the length of.
     resp = (

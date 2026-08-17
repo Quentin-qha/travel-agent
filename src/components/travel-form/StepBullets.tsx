@@ -10,6 +10,8 @@ interface StepBulletsProps {
   onStepClick: (step: number) => void;
 }
 
+/** Clickable step indicator for the 3-step form. A step is only clickable once `maxStepReached`
+ * has passed it — lets the user go back to edit an earlier step, but not skip ahead. */
 export default function StepBullets({ currentStep, maxStepReached, onStepClick }: StepBulletsProps) {
   const { t } = useLanguage();
 

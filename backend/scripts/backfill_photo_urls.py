@@ -29,6 +29,10 @@ def _new_url(photo_reference: str) -> str:
 
 
 def backfill_table(table: str) -> int:
+    """Normalizes every non-empty `image_url` on `table` (`itinerary`, `activity`
+    or `restaurant`) to the current proxy format, skipping rows that are already
+    correct or whose URL doesn't match a known pattern. Returns how many rows
+    were actually updated."""
     resp = client.table(table).select("id, image_url").execute()
     updated = 0
     for row in resp.data:

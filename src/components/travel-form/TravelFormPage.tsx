@@ -9,6 +9,10 @@ interface TravelFormPageProps {
   name?: string;
 }
 
+/**
+ * Full-page layout wrapping `TravelForm` — reused by both `/` (no `name`) and `/[segment]`
+ * when the segment isn't a trip UUID (e.g. `/quentin` -> personalized greeting).
+ */
 export default function TravelFormPage({ name }: TravelFormPageProps) {
   const { t } = useLanguage();
   const displayName = name ? name.charAt(0).toUpperCase() + name.slice(1) : null;

@@ -48,6 +48,9 @@ const MARKER_ICON_PATHS: Record<MapPoint["kind"], string> = {
     '<path d="m16 2-2.3 2.3a3 3 0 0 0 0 4.2l1.8 1.8a3 3 0 0 0 4.2 0L22 8"/><path d="M15 15 3.3 3.3a4.2 4.2 0 0 0 0 6l7.3 7.3c.7.7 2 .7 2.8 0L15 15Zm0 0 7 7"/><path d="m2.1 21.8 6.4-6.3"/><path d="m19 5-7 7"/>',
 };
 
+/** Builds a single-place pin icon (purple for activities, amber for restaurants), larger when selected.
+ * Uses `L.divIcon` with raw HTML/inline SVG rather than a React component or image file — Leaflet
+ * markers render outside React's tree, and this sidesteps the usual broken-marker-icon issue with bundlers. */
 function createMarkerIcon(kind: MapPoint["kind"], selected: boolean) {
   const size = selected ? 34 : 26;
   const background = kind === "restaurant" ? "#f59e0b" : "#7c3aed";
@@ -61,6 +64,8 @@ function createMarkerIcon(kind: MapPoint["kind"], selected: boolean) {
   });
 }
 
+/** Builds the pill icon for a cluster of nearby points — shows the count, and a gradient
+ * background when the cluster mixes activities and restaurants. */
 function createClusterIcon(clusterPoints: MapPoint[]) {
   const count = clusterPoints.length;
   const hasActivity = clusterPoints.some((p) => p.kind === "activity");
@@ -81,6 +86,9 @@ function createClusterIcon(clusterPoints: MapPoint[]) {
   });
 }
 
+/** Greedily groups `points` that project within `CLUSTER_PIXEL_DISTANCE` screen pixels of each
+ * other at the map's current zoom/pan — recomputed on every zoom/move (see `ClusteredMarkers`),
+ * since the same lat/lon points can be pixels apart at one zoom and overlapping at another. */
 function clusterPoints(map: L.Map, points: MapPoint[]): Cluster[] {
   const projected = points.map((point) => ({
     point,
@@ -112,6 +120,7 @@ function clusterPoints(map: L.Map, points: MapPoint[]): Cluster[] {
   return clusters;
 }
 
+/** Popup body for a single (non-clustered) marker — photo, name, description, duration/cuisine + budget. */
 function PlacePopupContent({ point }: { point: MapPoint }) {
   return (
     <div className="min-w-[190px]">
@@ -136,6 +145,9 @@ function PlacePopupContent({ point }: { point: MapPoint }) {
   );
 }
 
+/** Renders every point as either a single pin (with its popup) or a clustered pill (whose popup
+ * lists the grouped places, clicking one selecting it; clicking the cluster itself zooms/fits to
+ * it). Keeps `selectedKey`'s marker's popup open, syncing with the sidebar selection in `ItineraryMapView`. */
 function ClusteredMarkers({
   points,
   selectedKey,
@@ -234,6 +246,9 @@ function ClusteredMarkers({
   );
 }
 
+/** Tells Leaflet to recompute its internal size whenever its container is resized (e.g. the
+ * mobile map panel expanding/collapsing) — without this, Leaflet keeps rendering at its old
+ * size and shows gray/blank tiles until the next manual interaction. */
 function InvalidateSizeOnResize() {
   const map = useMap();
 
@@ -247,6 +262,9 @@ function InvalidateSizeOnResize() {
   return null;
 }
 
+/** Recenters/refits the map whenever the visible point set changes (e.g. the day filter
+ * changes) — zooms to the single point, fits bounds around several, or falls back to
+ * `fallbackCenter` if there's nothing geocoded to show. */
 function FitBoundsOnChange({
   points,
   fallbackCenter,
@@ -272,6 +290,8 @@ function FitBoundsOnChange({
   return null;
 }
 
+/** Smoothly flies the map to the selected point (e.g. after clicking a sidebar card), without
+ * zooming back out if the map is already more zoomed in than the target level. */
 function FlyToSelected({ points, selectedKey }: { points: MapPoint[]; selectedKey: string | null }) {
   const map = useMap();
 
@@ -285,6 +305,11 @@ function FlyToSelected({ points, selectedKey }: { points: MapPoint[]; selectedKe
   return null;
 }
 
+/**
+ * Pure Leaflet map for the trip detail page — plots `points` as clustered pins on CARTO Voyager
+ * tiles. Always loaded via `next/dynamic(..., { ssr: false })` from `ItineraryMapView.tsx`,
+ * since Leaflet touches `window` at import time and would break server rendering otherwise.
+ */
 export default function ItineraryMap({ points, selectedKey, onSelect, fallbackCenter }: ItineraryMapProps) {
   return (
     <MapContainer center={fallbackCenter} zoom={13} scrollWheelZoom zoomControl={false} className="h-full w-full">

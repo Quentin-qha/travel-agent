@@ -24,6 +24,12 @@ const TRIP_TYPE_LABELS_EN: Record<string, string> = {
   Traditionnel: "Traditional",
 };
 
+/**
+ * Display-only English label for a `TRIP_TYPES` value (e.g. `"Randonnée"` -> `"Hiking"`).
+ * Never use this for storage/filtering/API calls — those always use the raw French value;
+ * this only changes what's rendered on screen when `locale === "en"`. Falls back to the
+ * French value itself if it isn't in the map (e.g. legacy/unknown value).
+ */
 export function translateTripType(value: string, locale: Locale): string {
   if (locale !== "en") return value;
   return TRIP_TYPE_LABELS_EN[value] ?? value;

@@ -10,6 +10,8 @@ interface TripTypeSelectProps {
   onChange: (selected: string[]) => void;
 }
 
+/** Multi-select "vibes" chips (max `MAX_TRIP_TYPES`) — the `trip_types` sent to the backend
+ * and stored as-is (French labels, never translated in storage; see `translateTripType`). */
 export default function TripTypeSelect({ selected, onChange }: TripTypeSelectProps) {
   const { t, locale } = useLanguage();
 

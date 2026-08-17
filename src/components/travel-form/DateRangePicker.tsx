@@ -25,6 +25,11 @@ interface DateRangePickerProps {
   onChange: (range: DateRange) => void;
 }
 
+/**
+ * Two-month calendar dropdown for picking a trip's date range. Click behavior: first click
+ * (or clicking after a full range is already set) starts a new `from`; second click sets `to`
+ * (swapping if it's before `from`). Past dates are disabled.
+ */
 export default function DateRangePicker({ value, onChange }: DateRangePickerProps) {
   const { t } = useLanguage();
   const dateLocale = useDateFnsLocale();

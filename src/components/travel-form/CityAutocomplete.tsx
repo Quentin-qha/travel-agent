@@ -23,6 +23,12 @@ interface NominatimResult {
   };
 }
 
+/**
+ * Debounced (400ms) city search-and-select field, backed directly by the Nominatim
+ * (OpenStreetMap) search API from the browser — not the FastAPI backend, which only geocodes
+ * activities/restaurants via Google. Once a city is picked, collapses to a read-only chip;
+ * clicking it re-opens the search pre-filled with the current city name.
+ */
 export default function CityAutocomplete({ city, onChange }: CityAutocompleteProps) {
   const { t } = useLanguage();
   const [query, setQuery] = useState("");

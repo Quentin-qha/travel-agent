@@ -16,6 +16,13 @@ interface PlaceCardContentProps {
 // link) and ItineraryMapView's SidebarCard (selectable/editable) — the two
 // only differ in their outer wrapper (click handling, checkbox, ref
 // registration vs. a plain source link), not in how a place's info renders.
+/**
+ * Shared inner layout for a place row (icon, name, budget badge, description, detail line) —
+ * shared between `ItineraryResultView`'s read-only card (with a source link via `children`)
+ * and `ItineraryMapView`'s selectable/editable sidebar card. Only the outer wrapper differs
+ * between the two (click handling, checkbox, ref registration vs. a plain link); this
+ * component is just the content, not the interaction.
+ */
 export default function PlaceCardContent({
   icon: Icon,
   iconColor = "text-violet-500",
