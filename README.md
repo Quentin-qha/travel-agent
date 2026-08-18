@@ -284,7 +284,7 @@ The current agent generates a solid first draft of a trip and lets you patch it 
 - [ ] **Richer place data** — multiple photos per place, opening hours, and booking/ticket links alongside the source URL
 - [ ] **Personalization** — learn from a user's past trips and edits to bias future generations toward their actual taste
 - [ ] **Real accounts** — move beyond the per-trip edit token toward saved trips, favorites, and collaborative editing between multiple people
-
+- [ ] **Optimizing Load Time** — Loading times can be long sometimes; the more days I have, the more activities I have. The more activities I have, the longer it takes the agent to find them
 ## License
 
 MIT — see [LICENSE](LICENSE).
